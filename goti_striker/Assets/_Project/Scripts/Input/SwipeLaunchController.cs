@@ -60,6 +60,10 @@ namespace PitStriker.Input
         private bool _powerGestureActive = false;
         private ShotControlBinder _shotUI;
 
+        /// Pointer that owns the in-flight shot gesture; see <see cref="GestureRouter"/>.
+        const int NoPointer = int.MinValue;
+        private int _gesturePointerId = NoPointer;
+
         private void Awake()
         {
             Instance = this;
@@ -137,6 +141,7 @@ namespace PitStriker.Input
             bool isPressed = false;
             bool justPressed = false;
             bool justReleased = false;
+            int pointerId = GestureRouter.MousePointerId;
 
             // 1. Prioritize Touchscreen if active
             if (Touchscreen.current != null && (Touchscreen.current.primaryTouch.press.isPressed || Touchscreen.current.primaryTouch.press.wasPressedThisFrame || Touchscreen.current.primaryTouch.press.wasReleasedThisFrame))
@@ -145,6 +150,7 @@ namespace PitStriker.Input
                 isPressed = Touchscreen.current.primaryTouch.press.isPressed;
                 justPressed = Touchscreen.current.primaryTouch.press.wasPressedThisFrame;
                 justReleased = Touchscreen.current.primaryTouch.press.wasReleasedThisFrame;
+                pointerId = Touchscreen.current.primaryTouch.touchId.ReadValue();
             }
             // 2. Mouse / Trackpad
             else if (Mouse.current != null)
@@ -186,6 +192,12 @@ namespace PitStriker.Input
                     }
                 }
 
+                // Claim the gesture for the whole of its life. Until release this pointer cannot
+                // also orbit the camera, and a finger that slides off the panel mid-swipe still
+                // counts as a shot.
+                if (!GestureRouter.TryClaim(GestureOwner.Shot, pointerId)) return;
+                _gesturePointerId = pointerId;
+
                 if (_marble.CurrentSpeed < 2.5f)
                     _marble.Halt();
 
@@ -196,10 +208,15 @@ namespace PitStriker.Input
                 _currentPower = 0f;
             }
 
+            // Only the pointer that claimed the gesture may drive it. Without this a second
+            // finger landing on the panel would retarget the drag that is already running.
+            if (_isDragging && !GestureRouter.Owns(GestureOwner.Shot, _gesturePointerId)) return;
+
             // Pointer Dragging / Flicking
             if (_isDragging && isPressed)
             {
                 Vector2 screenDelta = screenPos - _dragScreenStart;
+                if (_shotUI != null) _shotUI.SetThumbOffset(screenDelta);
 
                 if (_aimMode == AimMode.ForwardFlickThrow)
                 {
@@ -415,12 +432,32 @@ namespace PitStriker.Input
         private void CancelDrag()
         {
             _isDragging = false;
+            _powerGestureActive = false;
             _currentPower = 0f;
             OnPowerChanged?.Invoke(0f);
             if (_trajectoryLine != null)
             {
                 _trajectoryLine.enabled = false;
             }
+
+            // Hand the pointer back. This runs on launch, on turn change, on aim-mode switch and
+            // on marble swap — every path out of a gesture — so a claim can never be stranded and
+            // leave the camera permanently unable to drag.
+            if (_gesturePointerId != NoPointer)
+            {
+                GestureRouter.Release(_gesturePointerId);
+                _gesturePointerId = NoPointer;
+            }
+
+            if (_shotUI != null) _shotUI.ResetThumb();
+        }
+
+        private void OnDisable() => CancelDrag();
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            // Touches are not delivered while backgrounded, so the release event never arrives.
+            if (!hasFocus) CancelDrag();
         }
     }
 }

@@ -11,6 +11,16 @@ namespace PitStriker.GameplayKit.EditorTools
     {
         const string PrefabPath = "Assets/_Project/GameplayKit/UI/Prefabs/UI_ShotControl.prefab";
         const string TexRoot = "Assets/_Project/GameplayKit/UI/Textures/";
+        const string SpriteRoot = "Assets/_Project/GameplayKit/UI/Sprites/";
+        const string PanelSprite = SpriteRoot + "SwipeShootPanel.png";
+        const string ThumbSprite = SpriteRoot + "SwipeShootThumb.png";
+
+        // Reference-pixel sizes (CanvasScaler reference height). The panel art is 941x1672, so
+        // height is width / 0.5628 and the sprite is never distorted.
+        const float PanelWidth = 200f;
+        const float PanelHeight = 356f;
+        const float PanelMargin = 28f;
+        const float ThumbSize = 96f;
 
         [MenuItem("Pit Striker/GameplayKit/Build Shot Control UI Prefab")]
         public static void Run()
@@ -21,6 +31,8 @@ namespace PitStriker.GameplayKit.EditorTools
                 "UI_Finger_Tutorial.png","UI_Finger_Trail.png"
             };
             foreach (var s in sprites) EnsureSpriteImport(TexRoot + s);
+            EnsureSpriteImport(PanelSprite);
+            EnsureSpriteImport(ThumbSprite);
             AssetDatabase.Refresh();
 
             var root = new GameObject("UI_ShotControl", typeof(RectTransform));
@@ -28,7 +40,13 @@ namespace PitStriker.GameplayKit.EditorTools
             rootRt.anchorMin = Vector2.zero; rootRt.anchorMax = Vector2.one;
             rootRt.offsetMin = Vector2.zero; rootRt.offsetMax = Vector2.zero;
 
-            var toggle = CreateUIObject("ShotModeToggle", root.transform);
+            // Everything lives under a safe-area wrapper so the control is never hidden behind a
+            // notch or the bottom gesture bar. The wrapper re-fits itself at runtime.
+            var safe = CreateUIObject("SafeArea", root.transform);
+            StretchFull(safe.GetComponent<RectTransform>());
+            safe.AddComponent<PitStriker.UI.SafeAreaFitter>();
+
+            var toggle = CreateUIObject("ShotModeToggle", safe.transform);
             SetOffset(toggle, new Vector2(0,0), new Vector2(0,0), new Vector2(24,24), new Vector2(304,96));
             CreateImage("Track", toggle.transform, TexRoot + "UI_ShotToggle_Track.png", true);
 
@@ -42,12 +60,29 @@ namespace PitStriker.GameplayKit.EditorTools
             CreateLabel(loft.transform, "LOFT", new Color(1,1,1,0.55f));
             loft.gameObject.AddComponent<Button>();
 
-            var power = CreateUIObject("PowerArea", root.transform);
+            // Compact right-edge control, pinned to the middle of the right edge rather than
+            // stretched over most of the screen. Sized in reference pixels so the supplied panel
+            // art keeps its 941:1672 aspect instead of being squashed into a thin column, and
+            // kept clear of the centre so it never covers the marble or the pits.
+            var power = CreateUIObject("PowerArea", safe.transform);
             var prt = power.GetComponent<RectTransform>();
-            prt.anchorMin = new Vector2(0.78f, 0.08f); prt.anchorMax = new Vector2(0.98f, 0.92f);
-            prt.offsetMin = Vector2.zero; prt.offsetMax = Vector2.zero;
-            var frame = CreateImage("Frame", power.transform, TexRoot + "UI_PowerArea_Frame.png", true);
-            StretchFull(frame.GetComponent<RectTransform>());
+            SetSize(prt,
+                    new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
+                    new Vector2(-PanelMargin, 0f), new Vector2(PanelWidth, PanelHeight));
+
+            // The panel is the shot region's own hit target: raycastTarget true so EventSystem
+            // reports it as UI, which is what keeps a touch here from reaching the camera drag.
+            var panel = CreateImage("PanelImage", power.transform, PanelSprite, true);
+            panel.preserveAspect = true;
+            StretchFull(panel.GetComponent<RectTransform>());
+
+            // Thumb rests mid-track: the gesture runs both ways (down = Ground, up = Loft), so
+            // centring it is the only start position that can show either direction.
+            var thumb = CreateImage("Thumb", power.transform, ThumbSprite, false);
+            thumb.preserveAspect = true;
+            SetSize(thumb.GetComponent<RectTransform>(),
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    Vector2.zero, new Vector2(ThumbSize, ThumbSize));
 
             var track = CreateImage("PowerTrack", power.transform, TexRoot + "UI_PowerBar_Track.png", false);
             SetSize(track.GetComponent<RectTransform>(), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(28,360));

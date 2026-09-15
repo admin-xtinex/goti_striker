@@ -201,20 +201,11 @@ namespace PitStriker.CameraSystem
                 }
             }
 
-            // Mobile Touch: 2-finger horizontal drag to orbit camera
-            if (Touchscreen.current != null && Touchscreen.current.touches.Count >= 2)
-            {
-                var touch1 = Touchscreen.current.touches[0];
-                var touch2 = Touchscreen.current.touches[1];
-
-                if (touch1.press.isPressed && touch2.press.isPressed)
-                {
-                    Vector2 delta1 = touch1.delta.ReadValue();
-                    Vector2 delta2 = touch2.delta.ReadValue();
-                    float avgDeltaX = (delta1.x + delta2.x) * 0.5f;
-                    _manualOrbitAngle += avgDeltaX * _orbitSensitivity * 0.6f;
-                }
-            }
+            // Touch orbit is NOT handled here. CameraDragInput owns it, so that a plain one-finger
+            // drag on the gameplay view orbits immediately with no hold and no activation tap,
+            // and so that every touch passes through GestureRouter and can never drive the camera
+            // and a shot at the same time. The old two-finger block that used to live here
+            // bypassed that arbitration and would double-apply alongside the new path.
         }
 
         private void LateUpdate()
