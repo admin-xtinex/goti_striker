@@ -48,6 +48,9 @@ sysinfo.txt
 *.stackdump
 crashlytics-build.properties
 
+# Build / tool logs
+*.log
+
 # .NET build output (server + tests)
 **/bin/
 **/obj/
