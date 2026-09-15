@@ -11,7 +11,7 @@ namespace PitStriker.EditorTools
     public static class BuildAPK
     {
         private const string BuildOutputDirectory = "../Builds/Android";
-        private const string ApkFileName = "PitStriker.apk";
+        private const string ApkFileName = "GotiStriker.apk";
         private const string RequestFile = "Library/BuildAPK.request";
         private const string PendingFile = "Library/BuildAPK.pending";
         private const string ResultFile = "Library/BuildAPK.result";
@@ -104,9 +104,12 @@ namespace PitStriker.EditorTools
             }
 
             // 2. Configure Player Settings for Android
-            PlayerSettings.productName = "Pit Striker";
+            // These are re-asserted here rather than trusted from ProjectSettings so a build is
+            // reproducible on a fresh clone. They must stay in step with ProjectSettings.asset:
+            // when they drifted, this silently rebranded every build back to the old name.
+            PlayerSettings.productName = "Goti Striker";
             PlayerSettings.companyName = "xtinex";
-            PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.Android, "com.xtinex.pitstriker");
+            PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.Android, "com.xtinex.gotistriker");
             PlayerSettings.bundleVersion = "1.0.0";
             PlayerSettings.Android.bundleVersionCode = 1;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
@@ -137,18 +140,29 @@ namespace PitStriker.EditorTools
             string keystorePath = Environment.GetEnvironmentVariable("ANDROID_KEYSTORE_PATH");
             if (string.IsNullOrEmpty(keystorePath) || !File.Exists(keystorePath))
             {
-                keystorePath = Path.Combine(projectRoot, "Keystore", "pitstriker.keystore");
-                if (!File.Exists(keystorePath))
+                // The keystore lives one level above the Unity project, beside Server/ and Docs/.
+                // Both spellings are probed: the file was renamed with the game, and an older
+                // checkout may still carry the pitstriker name.
+                string[] candidates =
                 {
-                    keystorePath = Path.Combine(projectRoot, "..", "Keystore", "pitstriker.keystore");
+                    Path.Combine(projectRoot, "Keystore", "gotistriker.keystore"),
+                    Path.Combine(projectRoot, "..", "Keystore", "gotistriker.keystore"),
+                    Path.Combine(projectRoot, "Keystore", "pitstriker.keystore"),
+                    Path.Combine(projectRoot, "..", "Keystore", "pitstriker.keystore"),
+                };
+                foreach (var c in candidates)
+                {
+                    if (!File.Exists(c)) continue;
+                    keystorePath = c;
+                    break;
                 }
             }
 
             if (File.Exists(keystorePath))
             {
-                string pass = Environment.GetEnvironmentVariable("ANDROID_KEYSTORE_PASS") ?? "xtinex123";
-                string alias = Environment.GetEnvironmentVariable("ANDROID_KEYALIAS_NAME") ?? "pitstriker";
-                string aliasPass = Environment.GetEnvironmentVariable("ANDROID_KEYALIAS_PASS") ?? "xtinex123";
+                string pass = Environment.GetEnvironmentVariable("ANDROID_KEYSTORE_PASS") ?? "gotistriker2026";
+                string alias = Environment.GetEnvironmentVariable("ANDROID_KEYALIAS_NAME") ?? "gotistriker";
+                string aliasPass = Environment.GetEnvironmentVariable("ANDROID_KEYALIAS_PASS") ?? "gotistriker2026";
 
                 PlayerSettings.Android.useCustomKeystore = true;
                 PlayerSettings.Android.keystoreName = Path.GetFullPath(keystorePath);

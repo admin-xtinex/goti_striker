@@ -181,7 +181,7 @@ namespace PitStriker.EditorTools
             GameObject homePanel = CreatePanel("Panel_HomeScreen", canvasObj.transform, new Color(0.05f, 0.07f, 0.12f, 0.94f));
 
             // Title
-            GameObject titleObj = CreateText("Text_Title", homePanel.transform, "PIT STRIKER", 54, FontStyle.Bold, new Color(1f, 0.85f, 0.25f, 1f), TextAnchor.MiddleCenter);
+            GameObject titleObj = CreateText("Text_Title", homePanel.transform, "GOTI STRIKER", 54, FontStyle.Bold, new Color(1f, 0.85f, 0.25f, 1f), TextAnchor.MiddleCenter);
             SetRect(titleObj, new Vector2(0.5f, 0.72f), new Vector2(0.5f, 0.72f), new Vector2(700, 90));
 
             // Subtitle
@@ -285,7 +285,7 @@ namespace PitStriker.EditorTools
             GameObject rulesCard = CreatePanel("Card", rulesModal.transform, new Color(0.10f, 0.13f, 0.20f, 1f));
             SetRect(rulesCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(760, 580));
 
-            GameObject rulesTitle = CreateText("Title", rulesCard.transform, "HOW TO PLAY - PIT STRIKER", 32, FontStyle.Bold, new Color(1f, 0.85f, 0.25f, 1f), TextAnchor.MiddleCenter);
+            GameObject rulesTitle = CreateText("Title", rulesCard.transform, "HOW TO PLAY - GOTI STRIKER", 32, FontStyle.Bold, new Color(1f, 0.85f, 0.25f, 1f), TextAnchor.MiddleCenter);
             SetRect(rulesTitle, new Vector2(0.5f, 0.88f), new Vector2(0.5f, 0.88f), new Vector2(680, 50));
 
             string rulesContent =

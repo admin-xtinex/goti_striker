@@ -63,7 +63,7 @@ namespace PitStriker.UI
 
                         _homePanel = Page("Home");
             Label(_homePanel.transform, "VILLAGE MARBLES", -240, 216, 430, 32, 18, Gold);
-            Label(_homePanel.transform, "PIT STRIKER", -240, 145, 460, 84, 52, Cream);
+            Label(_homePanel.transform, "GOTI STRIKER", -240, 145, 460, 84, 52, Cream);
             Label(_homePanel.transform, "A little aim. A clever strike.", -240, 65, 460, 42, 24, Cream);
             Label(_homePanel.transform, "Play against the computer or pass the phone\nto friends. Two to four players, one village lane.", -240, 8, 460, 70, 19, new Color(.72f,.83f,.80f));
             var coursePill = Box("CoursePill", _homePanel.transform, -240, -82, 460, 72, Card);
