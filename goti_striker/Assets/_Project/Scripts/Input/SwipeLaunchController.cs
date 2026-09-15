@@ -322,6 +322,18 @@ namespace PitStriker.Input
                 // the swipe direction chose this, not a UI toggle
                 ShotMode mode = _gestureShotMode;
                 if (cfg != null && mode == ShotMode.Loft && !cfg.AllowLoftShot) mode = ShotMode.Ground;
+
+                // The authoritative server simulates on a flat plane: it clamps pitch to
+                // NetworkProtocol.MaxAllowedPitch and then builds velocity with y = 0, so a
+                // lofted arc predicted here would be snapped back on the next snapshot.
+                // Keep online shots on the ground so prediction and authority agree.
+                bool onlineMatch = PitStriker.Networking.Client.CloudMatchManager.Instance != null
+                                   && PitStriker.Networking.Client.CloudMatchManager.Instance.IsOnlineMatchActive;
+                if (onlineMatch && mode == ShotMode.Loft)
+                {
+                    mode = ShotMode.Ground;
+                    if (cfg != null) cfg.TrySetMode(ShotMode.Ground);
+                }
                 if (openingToss)
                 {
                     pitch = 0.08f;
@@ -343,6 +355,17 @@ namespace PitStriker.Input
                 float force = power * _maxLaunchForce * GameDifficulty.LaunchForceMultiplier;
                 _marble.Halt();
                 _marble.ApplyImpulse(launchDir, force, maxPitch);
+
+                // Online: report the effective values this strike used so the opponent can
+                // reproduce it exactly. The local shot has already happened above — nothing
+                // about offline behaviour changes, we only describe what we just did.
+                if (onlineMatch)
+                {
+                    var cm = PitStriker.Networking.Client.CloudMatchManager.Instance;
+                    int marbleId = cm != null && cm.GetMarble(1) == _marble ? 1 : 0;
+                    cm?.ReportLocalShot(marbleId, launchDir, force, maxPitch,
+                                        mode == ShotMode.Loft, openingToss);
+                }
                 Debug.Log($"<color=#00FFAA><b>[SHOT {mode}]</b> power={power * 100:F0}% force={force:F1}N pitch={pitch:F2}</color>");
                 if (!openingToss && cfg != null)
                     cfg.NotifyShotCompleted();

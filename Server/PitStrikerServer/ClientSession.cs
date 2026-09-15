@@ -28,6 +28,24 @@ namespace PitStrikerServer
             LastSeenUtc = DateTime.UtcNow;
         }
 
+        private readonly NetworkByteWriter _sendWriter = new NetworkByteWriter(2048);
+
+        /// <summary>Convenience: serialise one opcode + payload and send it to this session only.</summary>
+        public Task SendOpCodeAsync(NetworkOpCode opCode, Action<NetworkByteWriter>? payloadWriter = null)
+        {
+            byte[] data;
+            int len;
+            lock (_sendWriter)
+            {
+                _sendWriter.Reset();
+                _sendWriter.WriteByte((byte)opCode);
+                payloadWriter?.Invoke(_sendWriter);
+                data = (byte[])_sendWriter.Buffer.Clone();
+                len = _sendWriter.Position;
+            }
+            return SendAsync(data, len);
+        }
+
         public async Task SendAsync(byte[] data, int length)
         {
             if (Socket == null || Socket.State != WebSocketState.Open) return;

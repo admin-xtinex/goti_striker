@@ -15,6 +15,12 @@ namespace PitStrikerServer.Tests
 
         private static async Task<int> Main(string[] args)
         {
+            // Automated v2 shot-relay protocol test: real server in-process, two real clients.
+            if (args.Length > 0 && args[0].Equals("--v2", StringComparison.OrdinalIgnoreCase))
+            {
+                return await V2ProtocolTests.RunAsync();
+            }
+
             if (args.Length > 0 && args[0].Equals("--join", StringComparison.OrdinalIgnoreCase))
             {
                 string roomToJoin = args.Length > 1 ? args[1] : "9CLGLF";
@@ -246,27 +252,63 @@ namespace PitStrikerServer.Tests
             Assert(engine.Phase == CloudMatchPhase.ReadyToAim, "Phase should transition to ReadyToAim on start");
             Assert(engine.ActivePlayerIndex == 0, "Player 0 should be active first");
 
-            // Try invalid player shooting
-            var badIntent = new ShotIntentData(1, 0, new NetVector3(0, 0, 1), 10f);
-            bool badShotResult = engine.SubmitShot(1, badIntent);
-            Assert(!badShotResult, "Player 1 should not be allowed to shoot on Player 0's turn");
+            // v2: the engine arbitrates turns; it no longer simulates marbles.
+            var badInput = MakeV2Input(engine.TurnId, 1);
+            bool badAccepted = engine.SubmitShotInput(1, ref badInput, out _, out _);
+            Assert(!badAccepted, "Player 1 should not be allowed to shoot on Player 0's turn");
 
-            // Valid shot with excessive force (should clamp to MaxAllowedForce = 45)
-            var validIntent = new ShotIntentData(1, 0, new NetVector3(0, 0, 1), 100f);
-            bool shotResult = engine.SubmitShot(0, validIntent);
-            Assert(shotResult, "Valid shot by Player 0 should be accepted");
-            Assert(engine.Phase == CloudMatchPhase.Rolling, "Phase should be Rolling after shot");
-            Assert(engine.Players[0].TotalStrokes == 1, "Player 0 strokes should increment to 1");
+            // Malformed input (force beyond the structural envelope) must be refused.
+            var wildInput = MakeV2Input(engine.TurnId, 0);
+            wildInput.Force = 100f;
+            bool wildAccepted = engine.SubmitShotInput(0, ref wildInput, out _, out _);
+            Assert(!wildAccepted, "Force outside the allowed envelope should be rejected");
 
-            // Simulate physics until rest
-            for (int i = 0; i < 200; i++)
+            var goodInput = MakeV2Input(engine.TurnId, 0);
+            bool accepted = engine.SubmitShotInput(0, ref goodInput, out int shotId, out _);
+            Assert(accepted, "Valid shot by Player 0 should be accepted");
+            Assert(shotId > 0, "Server should assign a shot id");
+            Assert(engine.Phase == CloudMatchPhase.Rolling, "Phase should be Rolling while the shot is in flight");
+
+            // No physics here: the turn only advances when the striker reports its result.
+            for (int i = 0; i < 20; i++) engine.Tick(0.05f);
+            Assert(engine.Phase == CloudMatchPhase.Rolling, "Phase must stay Rolling until a result arrives");
+
+            int turnBefore = engine.TurnId;
+            var result = new ShotResultData
             {
-                engine.Tick(0.05f);
-                if (engine.Phase != CloudMatchPhase.Rolling) break;
-            }
+                TurnId = turnBefore,
+                ShotId = shotId,
+                PlayerIndex = 0,
+                Marbles = new[] { new MarbleFinalState { MarbleId = 0, Position = new NetVector3(0f, 0.16f, 10f) } },
+                PitConqueredNumber = 0,
+                StrokesAfter = 1,
+                CurrentPitAfter = 1,
+            };
+            Assert(engine.SubmitShotResult(0, result, out _), "Striker's result should be accepted");
+            Assert(engine.Players[0].TotalStrokes == 1, "Stroke count should follow the accepted result");
+            Assert(engine.Phase == CloudMatchPhase.ReadyToAim, "Phase should return to ReadyToAim after the result");
+            Assert(engine.ActivePlayerIndex == 1, "Turn should pass to Player 1");
+            Assert(engine.TurnId > turnBefore, "Turn id should advance");
 
-            Assert(engine.Phase == CloudMatchPhase.ReadyToAim, "Phase should return to ReadyToAim after settle");
+            // A replayed packet must not advance the turn a second time.
+            int turnAfter = engine.TurnId;
+            Assert(!engine.SubmitShotResult(0, result, out _), "Duplicate result should be rejected");
+            Assert(engine.TurnId == turnAfter, "Duplicate result must not advance the turn");
         }
+
+        private static ShotInputData MakeV2Input(int turnId, int playerIndex) => new ShotInputData
+        {
+            TurnId = turnId,
+            ShotId = -1,
+            PlayerIndex = playerIndex,
+            MarbleId = playerIndex,
+            LaunchDirection = new NetVector3(0f, 0.04f, 0.9992f),
+            Force = 18f,
+            MaxPitch = 0.08f,
+            ShotMode = 0,
+            OpeningToss = false,
+            ClientTimestamp = 0,
+        };
 
         private static async Task TestEndToEndDualClientAsync()
         {

@@ -48,6 +48,10 @@ sysinfo.txt
 *.stackdump
 crashlytics-build.properties
 
+# .NET build output (server + tests)
+**/bin/
+**/obj/
+
 # Build artifacts
 *.apk
 *.aab

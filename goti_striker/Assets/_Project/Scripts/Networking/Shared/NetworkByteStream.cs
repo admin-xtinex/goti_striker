@@ -137,6 +137,66 @@ namespace PitStriker.Networking.Shared
             WritePlayerData(snapshot.Player1);
             WriteInt32(snapshot.WinnerPlayerIndex);
         }
+
+        // ---- v2: shot-input relay + client-authored final state ----
+
+        public void WriteShotInput(ShotInputData input)
+        {
+            WriteInt32(input.TurnId);
+            WriteInt32(input.ShotId);
+            WriteInt32(input.PlayerIndex);
+            WriteInt32(input.MarbleId);
+            WriteVector3(input.LaunchDirection);
+            WriteSingle(input.Force);
+            WriteSingle(input.MaxPitch);
+            WriteByte(input.ShotMode);
+            WriteBool(input.OpeningToss);
+            WriteDouble(input.ClientTimestamp);
+        }
+
+        public void WriteMarbleFinalState(MarbleFinalState m)
+        {
+            WriteInt32(m.MarbleId);
+            WriteVector3(m.Position);
+            WriteBool(m.IsRetired);
+            WriteInt32(m.InPitNumber);
+        }
+
+        private void WriteMarbleArray(MarbleFinalState[] marbles)
+        {
+            if (marbles == null) { WriteInt32(0); return; }
+            int count = marbles.Length;
+            if (count > NetworkProtocol.MaxMarblesPerMatch) count = NetworkProtocol.MaxMarblesPerMatch;
+            WriteInt32(count);
+            for (int i = 0; i < count; i++) WriteMarbleFinalState(marbles[i]);
+        }
+
+        public void WriteShotResult(ShotResultData r)
+        {
+            WriteInt32(r.TurnId);
+            WriteInt32(r.ShotId);
+            WriteInt32(r.PlayerIndex);
+            WriteMarbleArray(r.Marbles);
+            WriteInt32(r.PitConqueredNumber);
+            WriteInt32(r.StrokesAfter);
+            WriteInt32(r.CurrentPitAfter);
+            WriteBool(r.PlayerFinished);
+            WriteBool(r.HitOpponent);
+            WriteDouble(r.ClientTimestamp);
+        }
+
+        public void WriteAcceptedState(AcceptedStateData s)
+        {
+            WriteInt32(s.TurnId);
+            WriteInt32(s.LastAppliedShotId);
+            WriteInt32(s.ActivePlayerIndex);
+            WriteByte((byte)s.Phase);
+            WriteSingle(s.TurnTimerRemaining);
+            WriteMarbleArray(s.Marbles);
+            WritePlayerData(s.Player0);
+            WritePlayerData(s.Player1);
+            WriteInt32(s.WinnerPlayerIndex);
+        }
     }
 
     /// <summary>
@@ -266,6 +326,80 @@ namespace PitStriker.Networking.Shared
             CompactPlayerData p1 = ReadPlayerData();
             int winner = ReadInt32();
             return new WorldSnapshotData(tick, ts, phase, active, timer, m0, m1, p0, p1, winner);
+        }
+
+        // ---- v2: shot-input relay + client-authored final state ----
+
+        public ShotInputData ReadShotInput()
+        {
+            return new ShotInputData
+            {
+                TurnId = ReadInt32(),
+                ShotId = ReadInt32(),
+                PlayerIndex = ReadInt32(),
+                MarbleId = ReadInt32(),
+                LaunchDirection = ReadVector3(),
+                Force = ReadSingle(),
+                MaxPitch = ReadSingle(),
+                ShotMode = ReadByte(),
+                OpeningToss = ReadBool(),
+                ClientTimestamp = ReadDouble(),
+            };
+        }
+
+        public MarbleFinalState ReadMarbleFinalState()
+        {
+            return new MarbleFinalState
+            {
+                MarbleId = ReadInt32(),
+                Position = ReadVector3(),
+                IsRetired = ReadBool(),
+                InPitNumber = ReadInt32(),
+            };
+        }
+
+        private MarbleFinalState[] ReadMarbleArray()
+        {
+            int count = ReadInt32();
+            // A malformed or hostile count must not allocate wildly or read past the buffer.
+            if (count < 0) count = 0;
+            if (count > NetworkProtocol.MaxMarblesPerMatch) count = NetworkProtocol.MaxMarblesPerMatch;
+            var arr = new MarbleFinalState[count];
+            for (int i = 0; i < count; i++) arr[i] = ReadMarbleFinalState();
+            return arr;
+        }
+
+        public ShotResultData ReadShotResult()
+        {
+            return new ShotResultData
+            {
+                TurnId = ReadInt32(),
+                ShotId = ReadInt32(),
+                PlayerIndex = ReadInt32(),
+                Marbles = ReadMarbleArray(),
+                PitConqueredNumber = ReadInt32(),
+                StrokesAfter = ReadInt32(),
+                CurrentPitAfter = ReadInt32(),
+                PlayerFinished = ReadBool(),
+                HitOpponent = ReadBool(),
+                ClientTimestamp = ReadDouble(),
+            };
+        }
+
+        public AcceptedStateData ReadAcceptedState()
+        {
+            return new AcceptedStateData
+            {
+                TurnId = ReadInt32(),
+                LastAppliedShotId = ReadInt32(),
+                ActivePlayerIndex = ReadInt32(),
+                Phase = (CloudMatchPhase)ReadByte(),
+                TurnTimerRemaining = ReadSingle(),
+                Marbles = ReadMarbleArray(),
+                Player0 = ReadPlayerData(),
+                Player1 = ReadPlayerData(),
+                WinnerPlayerIndex = ReadInt32(),
+            };
         }
     }
 }

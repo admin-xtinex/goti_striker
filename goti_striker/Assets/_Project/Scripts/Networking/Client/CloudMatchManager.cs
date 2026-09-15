@@ -33,6 +33,27 @@ namespace PitStriker.Networking.Client
         private MarbleController _marble0;
         private MarbleController _marble1;
 
+        // ---- v2 shot-input relay state ----
+        // Turn and shot ids make duplicate, late and out-of-order messages safe to drop.
+        private int _turnId = 0;
+        private int _lastAppliedShotId = -1;
+        // Shot this client fired and still owes a result for (-1 = none).
+        private int _localPendingShotId = -1;
+        private ShotInputData _localPendingInput;
+        private bool _awaitingShotIdForLocalShot = false;
+        // Shot the opponent fired that we are currently replaying.
+        private int _replayingShotId = -1;
+        private float _settleTimer = 0f;
+        private float _awaitingResultTimer = 0f;
+        // Set while reconciling so input stays disabled until both phones agree.
+        private bool _reconciled = true;
+
+        private const float SettleGraceSeconds = 0.6f;   // ignore the first moments after launch
+        private const float MaxSettleSeconds = 15f;      // safety net if a marble never sleeps
+
+        public int TurnId => _turnId;
+        public bool IsReconciled => _reconciled;
+
         // Latest player statistics
         public CompactPlayerData Player0Data { get; private set; }
         public CompactPlayerData Player1Data { get; private set; }
@@ -96,27 +117,211 @@ namespace PitStriker.Networking.Client
         {
             if (!IsOnlineMatchActive) return true;
             if (CloudNetworkClient.Instance == null) return false;
-            return CloudNetworkClient.Instance.LocalPlayerIndex == _activePlayerIndex && _currentPhase == CloudMatchPhase.ReadyToAim;
+            // Input stays closed while a shot is in flight or while we are still reconciling,
+            // so two phones can never start a turn from different states.
+            if (!_reconciled || _localPendingShotId >= 0 || _replayingShotId >= 0) return false;
+            return CloudNetworkClient.Instance.LocalPlayerIndex == _activePlayerIndex
+                   && _currentPhase == CloudMatchPhase.ReadyToAim;
         }
 
-        public void SubmitLocalShot(Vector3 direction, float force)
+        /// <summary>
+        /// Called by SwipeLaunchController immediately after it applies the local impulse.
+        /// The strike has already happened in Unity physics — this only reports the effective
+        /// values so the opponent can reproduce the identical shot.
+        /// </summary>
+        public void ReportLocalShot(int marbleId, Vector3 launchDirection, float force,
+                                    float maxPitch, bool isLoft, bool openingToss)
         {
-            if (!IsMyTurn())
+            if (!IsOnlineMatchActive || CloudNetworkClient.Instance == null) return;
+
+            var input = new ShotInputData
             {
-                Debug.LogWarning("[CLOUD MATCH] Cannot shoot: Not your authoritative turn!");
+                TurnId = _turnId,
+                ShotId = -1, // assigned by the server
+                PlayerIndex = CloudNetworkClient.Instance.LocalPlayerIndex,
+                MarbleId = marbleId,
+                LaunchDirection = launchDirection,
+                Force = force,
+                MaxPitch = maxPitch,
+                ShotMode = (byte)(isLoft ? 1 : 0),
+                OpeningToss = openingToss,
+                ClientTimestamp = DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds,
+            };
+
+            _localPendingInput = input;
+            _awaitingShotIdForLocalShot = true;
+            _settleTimer = 0f;
+            _reconciled = false;
+
+            CloudNetworkClient.Instance.SubmitShotInput(input);
+            Debug.Log($"[CLOUD MATCH] Sent ShotInput turn={_turnId} force={force:F1} "
+                    + $"mode={(isLoft ? "Loft" : "Ground")} marble={marbleId}");
+        }
+
+        // ------------------------------------------------------------------
+        // v2 handlers
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Relayed shot input. On the striker this is the echo carrying the assigned ShotId.
+        /// On the opponent it is the shot to replay with the identical Unity impulse.
+        /// </summary>
+        private void HandleShotInputRelayed(ShotInputData input)
+        {
+            int localIdx = CloudNetworkClient.Instance?.LocalPlayerIndex ?? -1;
+
+            // Drop anything from a turn we have already moved past.
+            if (input.TurnId != _turnId)
+            {
+                Debug.LogWarning($"[CLOUD MATCH] Dropping shot input for turn {input.TurnId} (we are on {_turnId}).");
+                return;
+            }
+            // Drop a shot we have already applied (duplicate or re-delivered packet).
+            if (input.ShotId >= 0 && input.ShotId == _lastAppliedShotId) return;
+
+            if (input.PlayerIndex == localIdx)
+            {
+                // Our own shot came back stamped with its id; we owe a result for it.
+                if (_awaitingShotIdForLocalShot)
+                {
+                    _localPendingShotId = input.ShotId;
+                    _localPendingInput = input;
+                    _awaitingShotIdForLocalShot = false;
+                    _settleTimer = 0f;
+                    Debug.Log($"[CLOUD MATCH] Local shot accepted as id {input.ShotId}.");
+                }
                 return;
             }
 
-            // Client-Side Prediction (Phase 5): Apply impulse locally immediately so player feels 0ms latency
-            int localIdx = CloudNetworkClient.Instance.LocalPlayerIndex;
-            MarbleController localMarble = GetMarble(localIdx);
-            if (localMarble != null)
+            // Opponent's shot: replay the identical strike through the normal gameplay path.
+            MarbleController marble = GetMarble(input.PlayerIndex);
+            if (marble == null)
             {
-                localMarble.ApplyImpulse(direction, force);
+                Debug.LogWarning($"[CLOUD MATCH] No marble for player {input.PlayerIndex}; requesting resync.");
+                CloudNetworkClient.Instance?.RequestResync();
+                return;
             }
 
-            // Dispatch authoritative intent to cloud server
-            CloudNetworkClient.Instance.SubmitShot(direction, force);
+            _replayingShotId = input.ShotId;
+            _reconciled = false;
+            _awaitingResultTimer = 0f;
+
+            marble.Halt();
+            marble.ApplyImpulse(input.LaunchDirection, input.Force, input.MaxPitch);
+            OnNetworkShotExecutedEvent?.Invoke(input.PlayerIndex, input.LaunchDirection, input.Force);
+
+            // Same camera behaviour as offline: follow whoever is shooting.
+            FocusCameraOnMarble(marble);
+            Debug.Log($"[CLOUD MATCH] Replaying opponent shot {input.ShotId} (force {input.Force:F1}).");
+        }
+
+        /// <summary>The opponent's settled result. Used to reconcile our replay.</summary>
+        private void HandleShotResultRelayed(ShotResultData result)
+        {
+            if (result.ShotId == _lastAppliedShotId) return; // duplicate
+            ApplyFinalStates(result.Marbles, ease: true);
+            _replayingShotId = -1;
+            _awaitingResultTimer = 0f;
+        }
+
+        /// <summary>
+        /// Authoritative state for the next turn. Both clients converge here before input
+        /// re-opens, so neither can continue from a conflicting starting state.
+        /// </summary>
+        private void HandleAcceptedState(AcceptedStateData state)
+        {
+            if (state.TurnId < _turnId)
+            {
+                Debug.LogWarning($"[CLOUD MATCH] Ignoring stale accepted state (turn {state.TurnId} < {_turnId}).");
+                return;
+            }
+
+            _turnId = state.TurnId;
+            _lastAppliedShotId = state.LastAppliedShotId;
+
+            if (_currentPhase != state.Phase)
+            {
+                _currentPhase = state.Phase;
+                OnPhaseChangedEvent?.Invoke(_currentPhase);
+            }
+            if (_activePlayerIndex != state.ActivePlayerIndex)
+            {
+                _activePlayerIndex = state.ActivePlayerIndex;
+                OnActivePlayerChangedEvent?.Invoke(_activePlayerIndex);
+            }
+
+            _turnTimerRemaining = state.TurnTimerRemaining;
+            OnTimerTickEvent?.Invoke(_turnTimerRemaining);
+
+            // Positions are authoritative: snap or ease every marble onto the accepted state.
+            ApplyFinalStates(state.Marbles, ease: true);
+
+            if (Player0Data.TotalStrokes != state.Player0.TotalStrokes || Player0Data.CurrentPit != state.Player0.CurrentPit)
+            {
+                Player0Data = state.Player0;
+                OnPlayerStatsChangedEvent?.Invoke(0, state.Player0.TotalStrokes, state.Player0.CurrentPit);
+            }
+            if (Player1Data.TotalStrokes != state.Player1.TotalStrokes || Player1Data.CurrentPit != state.Player1.CurrentPit)
+            {
+                Player1Data = state.Player1;
+                OnPlayerStatsChangedEvent?.Invoke(1, state.Player1.TotalStrokes, state.Player1.CurrentPit);
+            }
+
+            // Push pit progression into TurnManager so scoring matches the accepted result.
+            SyncTurnManagerFromAccepted(state);
+
+            _localPendingShotId = -1;
+            _awaitingShotIdForLocalShot = false;
+            _replayingShotId = -1;
+            _awaitingResultTimer = 0f;
+            _reconciled = true;
+
+            if (state.WinnerPlayerIndex >= 0 && state.Phase == CloudMatchPhase.MatchCompleted)
+                OnMatchCompletedEvent?.Invoke(state.WinnerPlayerIndex);
+
+            Debug.Log($"[CLOUD MATCH] Accepted state: turn {_turnId}, active P{_activePlayerIndex + 1}, phase {_currentPhase}.");
+        }
+
+        /// <summary>Moves marbles onto authoritative positions, easing small differences.</summary>
+        private void ApplyFinalStates(MarbleFinalState[] marbles, bool ease)
+        {
+            if (marbles == null) return;
+            foreach (var m in marbles)
+            {
+                MarbleController mc = GetMarble(m.MarbleId);
+                if (mc == null) continue;
+
+                Vector3 target = m.Position;
+                float delta = Vector3.Distance(mc.transform.position, target);
+
+                mc.Halt();
+                if (!ease || delta > NetworkProtocol.ReconcileEaseThreshold)
+                {
+                    // Too far to hide — snap rather than slide visibly across the lane.
+                    mc.ResetPosition(target);
+                }
+                else if (delta > 0.01f)
+                {
+                    // Small float divergence between two runs of the same physics: ease it.
+                    mc.ResetPosition(Vector3.Lerp(mc.transform.position, target, 0.85f));
+                    mc.ResetPosition(target);
+                }
+                mc.IsRetired = m.IsRetired;
+            }
+        }
+
+        private void SyncTurnManagerFromAccepted(AcceptedStateData state)
+        {
+            var tm = TurnManager.Instance;
+            if (tm == null) return;
+            tm.CurrentPlayerIndex = state.ActivePlayerIndex;
+        }
+
+        private void FocusCameraOnMarble(MarbleController marble)
+        {
+            if (marble == null) return;
+            var cam = UnityEngine.Object.FindAnyObjectByType<PitStriker.CameraSystem.SmoothFollowCamera>();
+            if (cam != null) cam.SetTarget(marble.transform);
         }
 
         private void RegisterClientEvents()
@@ -125,6 +330,9 @@ namespace PitStriker.Networking.Client
             {
                 CloudNetworkClient.Instance.OnMatchStarted += HandleMatchStarted;
                 CloudNetworkClient.Instance.OnSnapshotReceived += HandleSnapshotReceived;
+                CloudNetworkClient.Instance.OnShotInputRelayed += HandleShotInputRelayed;
+                CloudNetworkClient.Instance.OnShotResultRelayed += HandleShotResultRelayed;
+                CloudNetworkClient.Instance.OnAcceptedState += HandleAcceptedState;
                 CloudNetworkClient.Instance.OnShotBroadcastReceived += HandleShotBroadcast;
                 CloudNetworkClient.Instance.OnMatchCompleted += HandleMatchCompleted;
                 CloudNetworkClient.Instance.OnRematchConfirmed += HandleRematchConfirmed;
@@ -137,6 +345,9 @@ namespace PitStriker.Networking.Client
             {
                 CloudNetworkClient.Instance.OnMatchStarted -= HandleMatchStarted;
                 CloudNetworkClient.Instance.OnSnapshotReceived -= HandleSnapshotReceived;
+                CloudNetworkClient.Instance.OnShotInputRelayed -= HandleShotInputRelayed;
+                CloudNetworkClient.Instance.OnShotResultRelayed -= HandleShotResultRelayed;
+                CloudNetworkClient.Instance.OnAcceptedState -= HandleAcceptedState;
                 CloudNetworkClient.Instance.OnShotBroadcastReceived -= HandleShotBroadcast;
                 CloudNetworkClient.Instance.OnMatchCompleted -= HandleMatchCompleted;
                 CloudNetworkClient.Instance.OnRematchConfirmed -= HandleRematchConfirmed;
@@ -150,6 +361,14 @@ namespace PitStriker.Networking.Client
             _currentPhase = CloudMatchPhase.ReadyToAim;
             _activePlayerIndex = 0;
             _turnTimerRemaining = NetworkProtocol.DefaultTurnDuration;
+
+            // v2: both clients start turn 1 from the same accepted state.
+            _turnId = 1;
+            _lastAppliedShotId = -1;
+            _localPendingShotId = -1;
+            _replayingShotId = -1;
+            _awaitingShotIdForLocalShot = false;
+            _reconciled = true;
 
             // Reset marble positions
             if (_marble0 != null)
@@ -172,6 +391,11 @@ namespace PitStriker.Networking.Client
                 TurnManager.Instance.CurrentPlayerIndex = 0;
             }
 
+            // Point the camera at THIS client's marble. Without this the camera keeps whatever
+            // target it had from the menu until someone fires a shot, and since both clients
+            // start on CurrentPlayerIndex 0 the joining player would watch the host's marble.
+            FocusCameraOnLocalMarble();
+
             OnPhaseChangedEvent?.Invoke(_currentPhase);
             OnActivePlayerChangedEvent?.Invoke(_activePlayerIndex);
 
@@ -180,6 +404,21 @@ namespace PitStriker.Networking.Client
             {
                 UI.MenuManager.Instance.ShowScreen(UI.MenuManager.ScreenType.InGame);
             }
+        }
+
+        /// <summary>Aims the follow camera at the local player's own marble.</summary>
+        private void FocusCameraOnLocalMarble()
+        {
+            int localIdx = CloudNetworkClient.Instance?.LocalPlayerIndex ?? 0;
+            if (localIdx < 0) localIdx = 0;
+            MarbleController localMarble = GetMarble(localIdx);
+            if (localMarble == null) return;
+
+            var cam = UnityEngine.Object.FindAnyObjectByType<PitStriker.CameraSystem.SmoothFollowCamera>();
+            if (cam == null) return;
+
+            cam.SetTarget(localMarble.transform);
+            Debug.Log($"[CLOUD MATCH] Camera focused on local marble '{localMarble.name}' (P{localIdx + 1}).");
         }
 
         private void HandleSnapshotReceived(WorldSnapshotData snapshot)
@@ -228,16 +467,104 @@ namespace PitStriker.Networking.Client
 
         private void Update()
         {
-            if (IsOnlineMatchActive && PredictionAndInterpolationController.Instance != null)
+            if (!IsOnlineMatchActive) return;
+
+            // The striking client owns the outcome: once its physics settles it reports
+            // where everything stopped. Nothing is sent until motion actually ends.
+            if (_localPendingShotId >= 0)
             {
-                int localIdx = CloudNetworkClient.Instance?.LocalPlayerIndex ?? 0;
-                int remoteIdx = 1 - localIdx;
-                MarbleController remoteMarble = GetMarble(remoteIdx);
-                if (remoteMarble != null)
+                _settleTimer += Time.deltaTime;
+                if (_settleTimer >= SettleGraceSeconds && (AllMarblesAtRest() || _settleTimer >= MaxSettleSeconds))
                 {
-                    PredictionAndInterpolationController.Instance.UpdateRemoteMarble(remoteMarble, remoteIdx);
+                    SendLocalShotResult(timedOut: _settleTimer >= MaxSettleSeconds);
                 }
             }
+
+            // If the opponent's result never arrives we ask the server rather than
+            // advancing the turn from our own replay.
+            if (_replayingShotId >= 0)
+            {
+                _awaitingResultTimer += Time.deltaTime;
+                if (_awaitingResultTimer >= NetworkProtocol.OpponentResultTimeout)
+                {
+                    Debug.LogWarning($"[CLOUD MATCH] No result for opponent shot {_replayingShotId} "
+                                   + $"after {_awaitingResultTimer:F1}s - requesting resync.");
+                    _awaitingResultTimer = 0f;
+                    _replayingShotId = -1;
+                    CloudNetworkClient.Instance?.RequestResync();
+                }
+            }
+        }
+
+        private bool AllMarblesAtRest()
+        {
+            if (_marble0 != null && _marble0.IsMoving) return false;
+            if (_marble1 != null && _marble1.IsMoving) return false;
+            return true;
+        }
+
+        /// <summary>Builds and sends the result for the shot this client fired. Sent once.</summary>
+        private void SendLocalShotResult(bool timedOut)
+        {
+            int shotId = _localPendingShotId;
+            _localPendingShotId = -1;   // guard: exactly one result per shot
+            _settleTimer = 0f;
+
+            var client = CloudNetworkClient.Instance;
+            if (client == null) return;
+
+            int localIdx = client.LocalPlayerIndex;
+            var tm = TurnManager.Instance;
+
+            var states = new System.Collections.Generic.List<MarbleFinalState>();
+            AddFinalState(states, 0, _marble0);
+            AddFinalState(states, 1, _marble1);
+
+            int pitConquered = 0;
+            int currentPitAfter = tm?.ActivePlayer?.currentPit ?? 1;
+            int strokesAfter = tm?.ActivePlayer?.totalStrokes ?? 0;
+            bool finished = tm?.ActivePlayer?.isFinished ?? false;
+
+            // A pit counts as conquered when the local marble settled inside the pit it was
+            // aiming at — decided by the same PitZone logic offline play uses.
+            MarbleController localMarble = GetMarble(localIdx);
+            if (localMarble != null)
+            {
+                foreach (var pz in FindObjectsByType<PitZone>(FindObjectsSortMode.None))
+                {
+                    if (pz.IsMarbleInsidePit(localMarble)) { pitConquered = pz.PitNumber; break; }
+                }
+            }
+
+            var result = new ShotResultData
+            {
+                TurnId = _turnId,
+                ShotId = shotId,
+                PlayerIndex = localIdx,
+                Marbles = states.ToArray(),
+                PitConqueredNumber = pitConquered,
+                StrokesAfter = strokesAfter,
+                CurrentPitAfter = currentPitAfter,
+                PlayerFinished = finished,
+                HitOpponent = tm != null && tm.HitOpponentThisTurn,
+                ClientTimestamp = DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds,
+            };
+
+            client.SubmitShotResult(result);
+            Debug.Log($"[CLOUD MATCH] Sent ShotResult shot={shotId} pit={pitConquered} "
+                    + $"strokes={strokesAfter}{(timedOut ? " (settle timeout)" : "")}");
+        }
+
+        private void AddFinalState(System.Collections.Generic.List<MarbleFinalState> list, int id, MarbleController m)
+        {
+            if (m == null) return;
+            list.Add(new MarbleFinalState
+            {
+                MarbleId = id,
+                Position = m.transform.position,
+                IsRetired = m.IsRetired,
+                InPitNumber = 0,
+            });
         }
 
         private void HandleShotBroadcast(int playerIndex, ShotIntentData intent)

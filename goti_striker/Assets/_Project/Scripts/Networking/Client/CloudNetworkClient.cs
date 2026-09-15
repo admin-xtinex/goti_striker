@@ -78,6 +78,11 @@ namespace PitStriker.Networking.Client
         public event Action<int, string> OnMatchAbandoned; // winnerIdx, reason
         public event Action<string> OnClientError;
 
+        // v2: shot-input relay + client-authored final state
+        public event Action<ShotInputData> OnShotInputRelayed;   // opponent's shot, or our own echo carrying the assigned ShotId
+        public event Action<ShotResultData> OnShotResultRelayed; // opponent's settled result
+        public event Action<AcceptedStateData> OnAcceptedState;  // authoritative state for the next turn
+
         private void Awake()
         {
             if (Instance == null)
@@ -287,6 +292,49 @@ namespace PitStriker.Networking.Client
             }
         }
 
+        // ---- v2 sends ----
+
+        /// <summary>
+        /// Sends the effective values this client's Unity strike used. The server verifies turn
+        /// ownership, assigns a ShotId and relays it; it does not simulate.
+        /// </summary>
+        public void SubmitShotInput(ShotInputData input)
+        {
+            if (!IsConnected || string.IsNullOrEmpty(ActiveRoomCode)) return;
+            lock (_writer)
+            {
+                _writer.Reset();
+                _writer.WriteByte((byte)NetworkOpCode.ShotInput);
+                _writer.WriteShotInput(input);
+                _transport.Send(_writer.Buffer, _writer.Position);
+            }
+        }
+
+        /// <summary>Reports where this client's shot settled. Sent once per shot.</summary>
+        public void SubmitShotResult(ShotResultData result)
+        {
+            if (!IsConnected || string.IsNullOrEmpty(ActiveRoomCode)) return;
+            lock (_writer)
+            {
+                _writer.Reset();
+                _writer.WriteByte((byte)NetworkOpCode.ShotResult);
+                _writer.WriteShotResult(result);
+                _transport.Send(_writer.Buffer, _writer.Position);
+            }
+        }
+
+        /// <summary>Asks the server to re-send the accepted state (missed relay, stalled replay).</summary>
+        public void RequestResync()
+        {
+            if (!IsConnected || string.IsNullOrEmpty(ActiveRoomCode)) return;
+            lock (_writer)
+            {
+                _writer.Reset();
+                _writer.WriteByte((byte)NetworkOpCode.ResyncRequest);
+                _transport.Send(_writer.Buffer, _writer.Position);
+            }
+        }
+
         public void RequestRematch()
         {
             if (!IsConnected || string.IsNullOrEmpty(ActiveRoomCode)) return;
@@ -416,9 +464,17 @@ namespace PitStriker.Networking.Client
                     }
                     else if (LocalPlayerIndex < 0)
                     {
-                        LocalPlayerIndex = (!string.IsNullOrEmpty(LocalPlayerName) && LocalPlayerName == p1) ? 0 : 1;
+                        // Legacy server that does not send the index. Guessing from the name is
+                        // unsafe: if both players use the same name both clients resolve to 0,
+                        // and then neither can ever take the second turn. Warn loudly.
+                        bool nameMatchesP1 = !string.IsNullOrEmpty(LocalPlayerName) && LocalPlayerName == p1;
+                        bool ambiguous = p1 == p2 || string.IsNullOrEmpty(LocalPlayerName);
+                        LocalPlayerIndex = nameMatchesP1 ? 0 : 1;
+                        Debug.LogWarning($"[CLOUD CLIENT] Server sent no player index; inferred {LocalPlayerIndex} from name "
+                                       + $"(local='{LocalPlayerName}', p1='{p1}', p2='{p2}')."
+                                       + (ambiguous ? " AMBIGUOUS - names are empty or identical, turn order will break. Update the server." : ""));
                     }
-                    Debug.Log($"<color=#00FF88>[CLOUD CLIENT] Match started in room {mCode}! LocalPlayerIndex: {LocalPlayerIndex}</color>");
+                    Debug.Log($"<color=#00FF88>[CLOUD CLIENT] Match started in room {mCode}! LocalPlayerIndex: {LocalPlayerIndex} (p1='{p1}', p2='{p2}')</color>");
                     OnMatchStarted?.Invoke(mCode, p1, p2);
                     break;
 
@@ -426,6 +482,22 @@ namespace PitStriker.Networking.Client
                     int playerIdx = reader.ReadInt32();
                     ShotIntentData shotIntent = reader.ReadShotIntent();
                     OnShotBroadcastReceived?.Invoke(playerIdx, shotIntent);
+                    break;
+
+                // v2: relayed shot input. Arrives on the opponent so it can replay the identical
+                // strike, and echoes back to the striker carrying the server-assigned ShotId.
+                case NetworkOpCode.ShotInputRelay:
+                    OnShotInputRelayed?.Invoke(reader.ReadShotInput());
+                    break;
+
+                // v2: the opponent's settled result, relayed for reconciliation.
+                case NetworkOpCode.ShotResult:
+                    OnShotResultRelayed?.Invoke(reader.ReadShotResult());
+                    break;
+
+                // v2: authoritative state both clients must hold before the next shot.
+                case NetworkOpCode.AcceptedState:
+                    OnAcceptedState?.Invoke(reader.ReadAcceptedState());
                     break;
 
                 case NetworkOpCode.WorldSnapshot:

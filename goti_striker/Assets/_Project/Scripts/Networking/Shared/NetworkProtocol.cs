@@ -2,7 +2,10 @@ namespace PitStriker.Networking.Shared
 {
     public static class NetworkProtocol
     {
-        public const int Version = 1;
+        // Version 2: shot-input relay + client-authored final state.
+        // The server no longer simulates marbles, so a v1 client (which expects a rolling
+        // physics feed) cannot share a match with a v2 server. The handshake rejects mismatches.
+        public const int Version = 2;
         public const uint MagicHeader = 0x50495453; // "PITS" in ASCII
         public const int DefaultPort = 7777;
         public const float DefaultTurnDuration = 30.0f;
@@ -10,10 +13,24 @@ namespace PitStriker.Networking.Shared
         public const float PingInterval = 5.0f;
         public const float ConnectionTimeout = 10.0f;
 
-        // Force and aim validation constants
+        // Structural bounds for rejecting malformed input — NOT simulation clamps.
+        // The striking client's Unity physics decides the actual shot.
         public const float MinAllowedForce = 0.5f;
         public const float MaxAllowedForce = 45.0f;
-        public const float MaxAllowedPitch = 0.15f; // Max vertical component of impulse
+        // Must cover the loft arc offline play can produce (ShotModeConfig.LoftMaxAngle = 0.55).
+        public const float MaxAllowedPitch = 0.60f;
+
+        // Server waits this long for the striking client's ShotResult before abandoning the turn.
+        // Must cover a full roll plus a slow connection.
+        public const float ShotResultTimeout = 20.0f;
+        // Opponent waits this long for a relayed result before asking the server to resync.
+        public const float OpponentResultTimeout = 25.0f;
+
+        // Largest number of gameplay marbles a result/state message may describe.
+        public const int MaxMarblesPerMatch = 4;
+
+        // Positional disagreement above this (metres) is snapped rather than eased.
+        public const float ReconcileEaseThreshold = 0.75f;
     }
 
     public enum NetworkDelivery : byte
@@ -73,6 +90,19 @@ namespace PitStriker.Networking.Shared
         MatchCompleted = 26,
         RematchRequest = 27,
         RematchConfirmed = 28,
+
+        // v2 shot-input relay + client-authored final state.
+        // ShotInput   : striker -> server, the effective values its Unity strike used
+        // ShotInputRelay : server -> opponent, so it can replay the identical strike
+        // ShotResult  : striker -> server, where everything settled
+        // AcceptedState : server -> both, the authoritative state the next turn starts from
+        // ResyncRequest/AcceptedStateFull : recovery after reconnect or a missing result
+        ShotInput = 40,
+        ShotInputRelay = 41,
+        ShotResult = 42,
+        AcceptedState = 43,
+        ResyncRequest = 44,
+        ShotAbandoned = 45,
 
         // Reliability, Reconnection & Disconnects
         ReconnectRequest = 30,

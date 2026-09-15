@@ -159,7 +159,19 @@ namespace PitStriker.EditorTools
             }
             else
             {
-                Debug.LogWarning($"[BUILD APK] Custom keystore not found at {keystorePath}, using default signing.");
+                // The project may still carry AndroidKeystoreName from a machine that had the
+                // release keystore. Leaving useCustomKeystore on while the file is missing fails
+                // the build with "Unable to sign the Android application", so switch it off and
+                // let Unity fall back to its debug keystore.
+                PlayerSettings.Android.useCustomKeystore = false;
+                PlayerSettings.Android.keystoreName = string.Empty;
+                PlayerSettings.Android.keystorePass = string.Empty;
+                PlayerSettings.Android.keyaliasName = string.Empty;
+                PlayerSettings.Android.keyaliasPass = string.Empty;
+                Debug.LogWarning($"[BUILD APK] Custom keystore not found at {keystorePath}. "
+                               + "Falling back to Unity debug signing - this APK is NOT release-signed. "
+                               + "Set ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASS / ANDROID_KEYALIAS_NAME / "
+                               + "ANDROID_KEYALIAS_PASS to produce a release build.");
             }
 
             // 4. Assemble scene list from EditorBuildSettings (or fallback to active scene)

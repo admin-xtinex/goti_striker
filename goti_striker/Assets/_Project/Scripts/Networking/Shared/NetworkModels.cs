@@ -99,6 +99,83 @@ namespace PitStriker.Networking.Shared
         }
     }
 
+    /// <summary>
+    /// The effective values the striking client's Unity strike used, so the opponent can
+    /// reproduce an identical shot. These are the arguments actually passed to
+    /// MarbleController.ApplyImpulse — not raw swipe screen coordinates.
+    /// </summary>
+    [Serializable]
+    public struct ShotInputData
+    {
+        public int TurnId;
+        public int ShotId;
+        public int PlayerIndex;
+        public int MarbleId;
+        public NetVector3 LaunchDirection;  // normalized; pitch already folded into y
+        public float Force;
+        public float MaxPitch;
+        public byte ShotMode;               // 0 = Ground, 1 = Loft
+        public bool OpeningToss;
+        public double ClientTimestamp;
+
+        /// <summary>Envelope check only. Does not attempt to judge whether the shot was "fair".</summary>
+        public bool IsStructurallyValid =>
+            Force >= NetworkProtocol.MinAllowedForce &&
+            Force <= NetworkProtocol.MaxAllowedForce &&
+            LaunchDirection.y >= -0.001f &&
+            LaunchDirection.y <= NetworkProtocol.MaxAllowedPitch + 0.001f &&
+            LaunchDirection.SqrMagnitude > 0.5f &&
+            LaunchDirection.SqrMagnitude < 1.5f &&
+            MarbleId >= 0 && MarbleId < NetworkProtocol.MaxMarblesPerMatch;
+    }
+
+    /// <summary>Where one marble ended up once the striking client's physics settled.</summary>
+    [Serializable]
+    public struct MarbleFinalState
+    {
+        public int MarbleId;
+        public NetVector3 Position;
+        public bool IsRetired;
+        public int InPitNumber;   // 0 = not in a pit
+    }
+
+    /// <summary>
+    /// The striking client's report of how its shot resolved. The server performs structural
+    /// checks only and never recomputes these values.
+    /// </summary>
+    [Serializable]
+    public struct ShotResultData
+    {
+        public int TurnId;
+        public int ShotId;
+        public int PlayerIndex;
+        public MarbleFinalState[] Marbles;
+        public int PitConqueredNumber;   // 0 = none
+        public int StrokesAfter;
+        public int CurrentPitAfter;
+        public bool PlayerFinished;
+        public bool HitOpponent;
+        public double ClientTimestamp;
+    }
+
+    /// <summary>
+    /// Authoritative state both clients must hold before the next shot is enabled.
+    /// Built by the server from an accepted ShotResult.
+    /// </summary>
+    [Serializable]
+    public struct AcceptedStateData
+    {
+        public int TurnId;               // the turn this state begins
+        public int LastAppliedShotId;
+        public int ActivePlayerIndex;
+        public CloudMatchPhase Phase;
+        public float TurnTimerRemaining;
+        public MarbleFinalState[] Marbles;
+        public CompactPlayerData Player0;
+        public CompactPlayerData Player1;
+        public int WinnerPlayerIndex;
+    }
+
     [Serializable]
     public struct WorldSnapshotData
     {

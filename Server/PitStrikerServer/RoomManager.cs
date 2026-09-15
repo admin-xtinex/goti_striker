@@ -129,7 +129,7 @@ namespace PitStrikerServer
             }
 
             // Broadcast initial world snapshot
-            await room.BroadcastSnapshotAsync();
+            await room.BroadcastAcceptedStateAsync();
         }
 
         public void Tick(float dt)

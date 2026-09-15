@@ -83,18 +83,68 @@ namespace PitStrikerServer
             }
         }
 
-        public async Task BroadcastSnapshotAsync()
+        /// <summary>
+        /// Set when turn/score state advances so the tick loop emits one AcceptedState.
+        /// This replaces the old continuous physics feed — the server no longer simulates
+        /// marbles, so there is nothing to stream between shots.
+        /// </summary>
+        private int _acceptedStateDirty = 0;
+
+        public void MarkAcceptedStateDirty() => Interlocked.Exchange(ref _acceptedStateDirty, 1);
+
+        public bool ConsumeAcceptedStateDirty() => Interlocked.Exchange(ref _acceptedStateDirty, 0) == 1;
+
+        /// <summary>Sends the authoritative state both clients must hold before the next shot.</summary>
+        public Task BroadcastAcceptedStateAsync()
         {
-            WorldSnapshotData snapshot = MatchEngine.CreateSnapshot();
+            AcceptedStateData state = MatchEngine.BuildAcceptedState();
+            byte[] data;
+            int len;
             lock (_writer)
             {
                 _writer.Reset();
-                _writer.WriteByte((byte)NetworkOpCode.WorldSnapshot);
-                _writer.WriteWorldSnapshot(snapshot);
-                byte[] data = _writer.Buffer;
-                int len = _writer.Position;
-                _ = BroadcastAsync(data, len);
+                _writer.WriteByte((byte)NetworkOpCode.AcceptedState);
+                _writer.WriteAcceptedState(state);
+                data = (byte[])_writer.Buffer.Clone();
+                len = _writer.Position;
             }
+            return BroadcastAsync(data, len);
+        }
+
+        /// <summary>Sends the accepted state to a single session (reconnect / resync).</summary>
+        public Task SendAcceptedStateToAsync(ClientSession session)
+        {
+            AcceptedStateData state = MatchEngine.BuildAcceptedState();
+            byte[] data;
+            int len;
+            lock (_writer)
+            {
+                _writer.Reset();
+                _writer.WriteByte((byte)NetworkOpCode.AcceptedState);
+                _writer.WriteAcceptedState(state);
+                data = (byte[])_writer.Buffer.Clone();
+                len = _writer.Position;
+            }
+            return session.SendAsync(data, len);
+        }
+
+        /// <summary>Relays a payload to the other player only.</summary>
+        public Task SendToOpponentAsync(ClientSession from, NetworkOpCode opCode, Action<NetworkByteWriter> payloadWriter)
+        {
+            ClientSession? target = ReferenceEquals(from, Player0) ? Player1 : Player0;
+            if (target == null || target.IsConnected != true) return Task.CompletedTask;
+
+            byte[] data;
+            int len;
+            lock (_writer)
+            {
+                _writer.Reset();
+                _writer.WriteByte((byte)opCode);
+                payloadWriter(_writer);
+                data = (byte[])_writer.Buffer.Clone();
+                len = _writer.Position;
+            }
+            return target.SendAsync(data, len);
         }
     }
 }

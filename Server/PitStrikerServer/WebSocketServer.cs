@@ -241,21 +241,65 @@ namespace PitStrikerServer
                     _roomManager.EnqueueQuickMatch(session);
                     break;
 
-                case NetworkOpCode.SubmitShotIntent:
+                // v2: the striker tells us the effective values its Unity strike used. We verify
+                // it owns the turn, stamp a shot id, and relay promptly. We do not simulate.
+                case NetworkOpCode.ShotInput:
                     if (session.CurrentRoom != null)
                     {
-                        ShotIntentData intent = reader.ReadShotIntent();
-                        bool accepted = session.CurrentRoom.MatchEngine.SubmitShot(session.RoomPlayerIndex, intent);
+                        ShotInputData input = reader.ReadShotInput();
+                        var shotRoom = session.CurrentRoom;
+                        bool ok = shotRoom.MatchEngine.SubmitShotInput(
+                            session.RoomPlayerIndex, ref input, out int shotId, out string why);
 
-                        if (accepted)
+                        if (ok)
                         {
-                            // Broadcast shot firing to both clients
-                            await session.CurrentRoom.BroadcastOpCodeAsync(NetworkOpCode.ShotBroadcast, w =>
-                            {
-                                w.WriteInt32(session.RoomPlayerIndex);
-                                w.WriteShotIntent(intent);
-                            });
+                            // Relay to the opponent so it can replay the identical strike.
+                            await shotRoom.SendToOpponentAsync(session, NetworkOpCode.ShotInputRelay,
+                                w => w.WriteShotInput(input));
+                            // Echo the assigned shot id back so the striker can tag its result.
+                            await session.SendOpCodeAsync(NetworkOpCode.ShotInputRelay,
+                                w => w.WriteShotInput(input));
                         }
+                        else
+                        {
+                            Console.WriteLine($"[ROOM {shotRoom.RoomCode}] ShotInput rejected from P{session.RoomPlayerIndex + 1}: {why}");
+                            await session.SendOpCodeAsync(NetworkOpCode.ErrorMessage, w => w.WriteString($"shot rejected: {why}"));
+                        }
+                    }
+                    break;
+
+                // v2: the striker reports where everything settled. Exactly one result is
+                // accepted per shot; duplicates and late copies are dropped by id.
+                case NetworkOpCode.ShotResult:
+                    if (session.CurrentRoom != null)
+                    {
+                        ShotResultData result = reader.ReadShotResult();
+                        var resRoom = session.CurrentRoom;
+                        bool ok = resRoom.MatchEngine.SubmitShotResult(session.RoomPlayerIndex, result, out string why);
+
+                        if (ok)
+                        {
+                            // Relay the raw result so the opponent can reconcile its replay,
+                            // then the accepted state both must hold before the next shot.
+                            await resRoom.SendToOpponentAsync(session, NetworkOpCode.ShotResult,
+                                w => w.WriteShotResult(result));
+                            await resRoom.BroadcastAcceptedStateAsync();
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[ROOM {resRoom.RoomCode}] ShotResult rejected from P{session.RoomPlayerIndex + 1}: {why}");
+                            // Re-send authoritative state so a confused client can recover.
+                            await resRoom.SendAcceptedStateToAsync(session);
+                        }
+                    }
+                    break;
+
+                // A client that missed a relay (late join, reconnect, stalled replay) asks for
+                // the current accepted state rather than guessing.
+                case NetworkOpCode.ResyncRequest:
+                    if (session.CurrentRoom != null)
+                    {
+                        await session.CurrentRoom.SendAcceptedStateToAsync(session);
                     }
                     break;
 
@@ -307,8 +351,9 @@ namespace PitStrikerServer
                             w.WriteInt32(priorSession.RoomPlayerIndex);
                         });
 
-                        // Rehydrate full snapshot
-                        await priorSession.CurrentRoom.BroadcastSnapshotAsync();
+                        // Rehydrate: send the reconnecting client the last accepted state and
+                        // current phase so it can restore the room rather than guess.
+                        await priorSession.CurrentRoom.SendAcceptedStateToAsync(priorSession);
                         Console.WriteLine($"[RECONNECT] Reconnected {priorSession.PlayerName} to room {priorSession.CurrentRoom.RoomCode}");
                     }
                     else
@@ -359,15 +404,14 @@ namespace PitStrikerServer
                     tickCount++;
                     _roomManager.Tick(dt);
 
-                    // Broadcast snapshots
+                    // v2: no continuous position feed. The server does not simulate marbles,
+                    // so there is nothing to stream between shots. One AcceptedState is sent
+                    // whenever turn/score state actually advances.
                     foreach (var room in _roomManager.ActiveRooms)
                     {
-                        bool isRolling = room.MatchEngine.Phase == CloudMatchPhase.Rolling;
-                        int interval = isRolling ? snapshotIntervalRolling : snapshotIntervalIdle;
-
-                        if (tickCount % interval == 0 && room.MatchEngine.Phase != CloudMatchPhase.WaitingForPlayers)
+                        if (room.ConsumeAcceptedStateDirty())
                         {
-                            _ = room.BroadcastSnapshotAsync();
+                            _ = room.BroadcastAcceptedStateAsync();
                         }
                     }
 

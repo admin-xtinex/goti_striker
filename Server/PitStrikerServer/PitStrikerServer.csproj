@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\pitstricker\Assets\_Project\Scripts\Networking\Shared\**\*.cs" Link="Shared\%(RecursiveDir)%(FileName)%(Extension)" />
+    <Compile Include="..\..\goti_striker\Assets\_Project\Scripts\Networking\Shared\**\*.cs" Link="Shared\%(RecursiveDir)%(FileName)%(Extension)" />
   </ItemGroup>
 
 </Project>
