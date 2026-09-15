@@ -147,6 +147,16 @@ namespace PitStriker.CameraSystem
             _manualOrbitAngle = 0f;
         }
 
+        /// <summary>
+        /// Restores a previously captured orbit angle exactly. Used when handing the view back
+        /// after spectating an opponent's shot, so the player gets the framing they set up
+        /// rather than a reset one.
+        /// </summary>
+        public void SetOrbitAngle(float degrees)
+        {
+            _manualOrbitAngle = degrees;
+        }
+
         private void Update()
         {
             HandleManualOrbitInput();

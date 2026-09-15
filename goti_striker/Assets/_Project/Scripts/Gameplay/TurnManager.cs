@@ -91,6 +91,30 @@ namespace PitStriker.Gameplay
         public GameState CurrentState { get; private set; } = GameState.TossPhase;
         public int CurrentPlayerIndex { get; set; } = 0;
         public PlayerData ActivePlayer => (_players != null && _players.Count > CurrentPlayerIndex) ? _players[CurrentPlayerIndex] : null;
+
+        /// <summary>True while a cloud match is running, where the server owns turn outcome.</summary>
+        public static bool IsOnlineMatch =>
+            PitStriker.Networking.Client.CloudMatchManager.Instance != null &&
+            PitStriker.Networking.Client.CloudMatchManager.Instance.IsOnlineMatchActive;
+
+        /// <summary>
+        /// The player THIS device represents — its camera subject and the marble its input
+        /// drives. Online that is fixed to our own seat for the whole match, whoever's turn it
+        /// is. Offline it is null, because a shared screen legitimately follows the active
+        /// player from turn to turn.
+        /// </summary>
+        public PlayerData LocalViewPlayer
+        {
+            get
+            {
+                if (!IsOnlineMatch || _players == null) return null;
+                int idx = PitStriker.Networking.Client.CloudNetworkClient.Instance != null
+                    ? PitStriker.Networking.Client.CloudNetworkClient.Instance.LocalPlayerIndex
+                    : -1;
+                if (idx < 0 || idx >= _players.Count) return null;
+                return _players[idx];
+            }
+        }
         public int CoursePar => _pitPars[0] + _pitPars[1] + _pitPars[2];
         public int CurrentTargetPit => ActivePlayer != null ? ActivePlayer.currentPit : 1;
         public int CurrentPitPar => (_pitPars != null && CurrentTargetPit >= 1 && CurrentTargetPit <= _pitPars.Length) ? _pitPars[CurrentTargetPit - 1] : 3;
@@ -891,6 +915,24 @@ namespace PitStriker.Gameplay
 
         private IEnumerator EvaluateTurnOutcomeRoutine()
         {
+            // Online: the server owns the turn outcome, so this offline routine must not run.
+            //
+            // It relocates marbles to the next tee, resets pits, advances the active player and
+            // sets game state — all decisions the authoritative engine is making at the same
+            // moment from the ShotResult we sent it. Both running at once is why an online match
+            // went wrong right after a pit was conquered: the client moved itself on while the
+            // server moved it somewhere else, and the two never agreed again.
+            //
+            // Nothing is lost by skipping it. Pit capture for the result is detected
+            // independently in CloudMatchManager.SendLocalShotResult, strokes and pit progress
+            // arrive via AcceptedState, the turn advances through OnActivePlayerChangedEvent,
+            // and match completion arrives as its own message.
+            if (IsOnlineMatch)
+            {
+                _evaluateCoroutine = null;
+                yield break;
+            }
+
             SetState(GameState.Evaluating);
 
             // Let player savor the roll and stop
@@ -1277,8 +1319,19 @@ namespace PitStriker.Gameplay
         {
             if (ActivePlayer == null) return;
 
-            // If active player has not yet taken their first move, stage them at the start line
-            if (!ActivePlayer.hasTakenFirstShot && ActivePlayer.marble != null)
+            // Whose marble this client controls and watches.
+            //
+            // Offline, one screen is shared, so that is simply whoever is up. Online it must
+            // always be OUR marble: this method runs on BOTH clients every time the server
+            // changes the active player, so binding to ActivePlayer meant that on the opponent's
+            // turn your own device re-pointed its camera and its swipe input at the opponent's
+            // marble. That is why the marble you were playing kept alternating between blue and
+            // red, and why the view jumped away mid-match.
+            PlayerData viewPlayer = LocalViewPlayer ?? ActivePlayer;
+
+            // Staging at the tee is an authoring action, not a view action: only the player who
+            // is actually up should be moved, and online the server owns positions entirely.
+            if (!IsOnlineMatch && !ActivePlayer.hasTakenFirstShot && ActivePlayer.marble != null)
             {
                 ActivePlayer.marble.ResetPosition(GetStartCenterWorld());
             }
@@ -1289,18 +1342,18 @@ namespace PitStriker.Gameplay
                 ActivePlayer.marble.SetVisible(true);
             }
 
-            // 1. Point Camera to active player's marble oriented towards active target pit
+            // 1. Point Camera at the marble this client owns, aimed at that player's target pit
             SmoothFollowCamera cam = FindAnyObjectByType<SmoothFollowCamera>();
-            if (cam != null && ActivePlayer.marble != null)
+            if (cam != null && viewPlayer.marble != null)
             {
-                cam.SetTarget(ActivePlayer.marble.transform, GetPitPosition(ActivePlayer.currentPit));
+                cam.SetTarget(viewPlayer.marble.transform, GetPitPosition(viewPlayer.currentPit));
             }
 
             // 2. Rebind Swipe Controller in Precision Mode
-            if (SwipeLaunchController.Instance != null && ActivePlayer.marble != null)
+            if (SwipeLaunchController.Instance != null && viewPlayer.marble != null)
             {
                 SwipeLaunchController.Instance.SetAimMode(SwipeLaunchController.AimMode.PrecisionPullBack);
-                SwipeLaunchController.Instance.SetActiveMarble(ActivePlayer.marble);
+                SwipeLaunchController.Instance.SetActiveMarble(viewPlayer.marble);
             }
 
             OnActivePlayerChanged?.Invoke(ActivePlayer);

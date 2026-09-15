@@ -210,13 +210,10 @@ namespace PitStriker.Networking.Client
             marble.ApplyImpulse(input.LaunchDirection, input.Force, input.MaxPitch);
             OnNetworkShotExecutedEvent?.Invoke(input.PlayerIndex, input.LaunchDirection, input.Force);
 
-            // Stay on our own marble. Offline follows whoever is shooting because one screen is
-            // shared between players; online each player has their own screen, so switching to
-            // the opponent's marble takes the view away from the person holding the device and
-            // discards the orbit they set up for their next shot.
-            FocusCameraOnLocalMarble();
+            // Watch the opponent's shot, then hand the view back exactly as it was.
+            BeginSpectateOpponent(marble);
             Debug.Log($"[CLOUD MATCH] Replaying opponent shot {input.ShotId} (force {input.Force:F1}); "
-                    + "camera stays on the local marble.");
+                    + "spectating until it settles.");
         }
 
         /// <summary>The opponent's settled result. Used to reconcile our replay.</summary>
@@ -270,6 +267,12 @@ namespace PitStriker.Networking.Client
                 Player1Data = state.Player1;
                 OnPlayerStatsChangedEvent?.Invoke(1, state.Player1.TotalStrokes, state.Player1.CurrentPit);
             }
+
+            // The shot being watched has settled and authority has spoken, so give the player
+            // their own marble and their own framing back. Done here rather than inside
+            // SyncTurnManagerFromAccepted, which returns early when TurnManager is missing and
+            // would leave the camera stuck on the opponent.
+            EndSpectate();
 
             // Push pit progression into TurnManager so scoring matches the accepted result.
             SyncTurnManagerFromAccepted(state);
@@ -440,6 +443,46 @@ namespace PitStriker.Networking.Client
         }
 
         /// <summary>Aims the follow camera at the local player's own marble.</summary>
+        // ------------------------------------------------------------------ spectating
+        //
+        // While the opponent shoots there is nothing to watch on our own marble, so the camera
+        // follows theirs — but the player's own framing is not forfeited to do it. The orbit
+        // angle they set up is captured on the way in and restored on the way out, so the view
+        // they get back for their next shot is the one they left, not a reset one.
+        //
+        // This is the distinction that made the original behaviour feel broken: it switched
+        // targets on every turn change AND discarded the orbit, so the player's aim setup
+        // vanished mid-match. Here the switch lasts only for the duration of the opponent's
+        // shot and is always undone.
+
+        private float _savedOrbitAngle;
+        private bool _spectating;
+
+        private void BeginSpectateOpponent(MarbleController opponentMarble)
+        {
+            if (opponentMarble == null) return;
+            var cam = PitStriker.CameraSystem.SmoothFollowCamera.Instance;
+            if (cam == null) return;
+
+            if (!_spectating)
+            {
+                _savedOrbitAngle = cam.ManualOrbitAngle;
+                _spectating = true;
+            }
+            cam.SetTarget(opponentMarble.transform);
+        }
+
+        /// <summary>Hands the view back to this player, with their own orbit restored.</summary>
+        private void EndSpectate()
+        {
+            if (!_spectating) return;
+            _spectating = false;
+
+            FocusCameraOnLocalMarble();
+            var cam = PitStriker.CameraSystem.SmoothFollowCamera.Instance;
+            if (cam != null) cam.SetOrbitAngle(_savedOrbitAngle);
+        }
+
         private void FocusCameraOnLocalMarble()
         {
             int localIdx = CloudNetworkClient.Instance?.LocalPlayerIndex ?? 0;
