@@ -8846,6 +8846,10 @@ MonoBehaviour:
   _btnQualityMed: {fileID: 0}
   _btnQualityHigh: {fileID: 0}
   _displayInfoText: {fileID: 0}
+  _btnDiffEasy: {fileID: 0}
+  _btnDiffHard: {fileID: 0}
+  _btnDiffPro: {fileID: 0}
+  _difficultyDescText: {fileID: 0}
   _playModePanel: {fileID: 0}
   _onlineMenuPanel: {fileID: 0}
   _createMatchPanel: {fileID: 0}

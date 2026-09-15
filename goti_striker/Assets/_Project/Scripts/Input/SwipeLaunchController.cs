@@ -236,7 +236,7 @@ namespace PitStriker.Input
 
                         if (_trajectoryLine != null)
                         {
-                            _trajectoryLine.enabled = true;
+                            _trajectoryLine.enabled = GameDifficulty.ShowTrajectoryGuide;
                             Vector3 marblePos = _marble != null ? _marble.transform.position : transform.position;
                             Vector3 startPos = marblePos + (Vector3.up * 0.05f);
                             Vector3 endPos = startPos + (_shootDirection * (Mathf.Max(0.3f, _currentPower) * _maxVisualTrajectoryLength * GameDifficulty.TrajectoryLengthMultiplier));
@@ -302,7 +302,7 @@ namespace PitStriker.Input
 
                         if (_trajectoryLine != null)
                         {
-                            _trajectoryLine.enabled = true;
+                            _trajectoryLine.enabled = GameDifficulty.ShowTrajectoryGuide;
                             Vector3 marblePos = _marble != null ? _marble.transform.position : transform.position;
                             Vector3 startPos = marblePos + (Vector3.up * 0.05f);
                             Vector3 endPos = startPos + (_shootDirection * (_currentPower * _maxVisualTrajectoryLength * GameDifficulty.TrajectoryLengthMultiplier));
@@ -407,7 +407,7 @@ namespace PitStriker.Input
 
             if (_trajectoryLine != null)
             {
-                _trajectoryLine.enabled = true;
+                _trajectoryLine.enabled = GameDifficulty.ShowTrajectoryGuide;
                 Vector3 marblePos = _marble != null ? _marble.transform.position : transform.position;
                 Vector3 startPos = marblePos + (Vector3.up * 0.05f);
                 Vector3 endPos = startPos + (_shootDirection * (Mathf.Max(0.3f, _currentPower) * _maxVisualTrajectoryLength * GameDifficulty.TrajectoryLengthMultiplier));

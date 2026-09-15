@@ -120,7 +120,6 @@ namespace PitStriker.Gameplay
         public bool HitOpponentThisTurn => _hitOpponentMarbleThisTurn;
 
         // Tracks AI bots that conquered a pit on their previous scoring turn to prevent continuous back-to-back pit sinks
-        public static HashSet<int> BotsThatConqueredPitLastTurn = new HashSet<int>();
 
         // Events
         public static event Action<GameState> OnStateChanged;
@@ -516,7 +515,6 @@ namespace PitStriker.Gameplay
             Array.Sort(foundMarbles, (a, b) => string.Compare(a.name, b.name, StringComparison.Ordinal));
 
             _players.Clear();
-            BotsThatConqueredPitLastTurn.Clear();
 
             Color[] themeColors = new Color[]
             {
@@ -936,27 +934,17 @@ namespace PitStriker.Gameplay
                     ResetAllPits();
 
                     _bonusStrikeEarned = false;
-                    // Conquering Pit 1 or Pit 2:
-                    if (ActivePlayer.isAI)
-                    {
-                        // DISABLE BOT FOR CONTINUOUS TWO PITS IN A ROW:
-                        // 1. AI bot never receives an immediate bonus turn after conquering a pit.
-                        // Turn immediately passes to the human player!
-                        BotsThatConqueredPitLastTurn.Add(ActivePlayer.id);
-                        BroadcastStatus($"★ {ActivePlayer.name.ToUpper()} CONQUERED PIT {ActivePlayer.currentPit - 1}! TURN PASSES TO PLAYER ★");
-                        yield return new WaitForSeconds(1.2f);
-                        if (_players.Count > 1)
-                        {
-                            AdvanceToNextActivePlayer();
-                        }
-                        else
-                        {
-                            _shotsTakenThisTurn = 0;
-                            ActivateCurrentPlayer();
-                            SetState(GameState.ReadyToAim);
-                        }
-                    }
-                    else if (_shotsTakenThisTurn >= _maxShotsPerTurn)
+
+                    // Conquering Pit 1 or Pit 2 earns an extra play — for bots as well as humans.
+                    //
+                    // Bots used to be denied this outright: the turn was passed the instant a bot
+                    // sank a pit, to stop it chaining two pits in a row. That made a bot's turn
+                    // visibly halt mid-flow and gave bots and players different rules. Instead the
+                    // bot now takes its extra play like anyone else, and is made to be much less
+                    // accurate on that follow-up shot (GameDifficulty.BotBonusShotErrorMultiplier),
+                    // so chaining stays unlikely without stopping play. How unlikely is what the
+                    // difficulty setting tunes.
+                    if (_shotsTakenThisTurn >= _maxShotsPerTurn)
                     {
                         BroadcastStatus($"★ {ActivePlayer.name.ToUpper()} CONQUERED PIT! MAX {_maxShotsPerTurn} SHOTS REACHED — TURN OVER! ★");
                         yield return new WaitForSeconds(1.5f);

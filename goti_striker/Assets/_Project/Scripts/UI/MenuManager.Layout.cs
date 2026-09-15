@@ -330,11 +330,24 @@ _rulesModal = Page("HowToPlay");
             MultilineLabel(vibCard.transform, "Tactile vibration on marble strikes, bank collisions, and pocketing.", -120, -15, 480, 40, 14, new Color(.62f,.75f,.72f), TextAnchor.MiddleLeft);
             _hapticsToggleButton = ActionButton("Btn_Haptics", vibCard.transform, "VIBRATION: ENABLED", 260, 0, 185, 52, Green);
             _hapticsToggleText = _hapticsToggleButton.GetComponentInChildren<Text>();
+            // Difficulty replaces the old fixed "AIM TRAJECTORY ASSIST" readout. The aim guide is
+            // now one of the things this choice drives, alongside launch strength and how sharp
+            // the bots are. Offline only — online always plays at Hard.
             var aimCard = Box("AimCard", _gameplaySettingsPanel.transform, 0, -55, 760, 94, Ink);
-            MultilineLabel(aimCard.transform, "AIM TRAJECTORY ASSIST", -120, 20, 480, 26, 18, Cream, TextAnchor.MiddleLeft);
-            MultilineLabel(aimCard.transform, "Active trajectory guide (50% range). Deterministic physics prediction.", -120, -15, 480, 40, 14, new Color(.62f,.75f,.72f), TextAnchor.MiddleLeft);
-            var aimPill = Box("AimPill", aimCard.transform, 260, 0, 185, 52, Card);
-            Label(aimPill.transform, "ACTIVE (50%)", 0, 0, 175, 30, 17, Gold);
+            MultilineLabel(aimCard.transform, "DIFFICULTY", -250, 26, 220, 26, 18, Cream, TextAnchor.MiddleLeft);
+            _difficultyDescText = MultilineLabel(aimCard.transform,
+                GameDifficulty.Description(GameDifficulty.CurrentMode) + "  Offline only; online always plays Hard.",
+                -250, -12, 360, 44, 13, new Color(.62f,.75f,.72f), TextAnchor.MiddleLeft);
+
+            _btnDiffEasy = ActionButton("Btn_DiffEasy", aimCard.transform, "EASY", 110, 0, 118, 52, Card);
+            _btnDiffHard = ActionButton("Btn_DiffHard", aimCard.transform, "HARD", 238, 0, 118, 52, Card);
+            _btnDiffPro  = ActionButton("Btn_DiffPro",  aimCard.transform, "PRO",  366, 0, 118, 52, Card);
+
+            _btnDiffEasy.onClick.AddListener(() => SetDifficulty(DifficultyMode.Easy));
+            _btnDiffHard.onClick.AddListener(() => SetDifficulty(DifficultyMode.Hard));
+            _btnDiffPro.onClick.AddListener(() => SetDifficulty(DifficultyMode.Pro));
+            RefreshDifficultyButtons();
+
             _gameplaySettingsPanel.SetActive(false);
 
             _displaySettingsPanel = Box("DisplaySettingsPanel", settingsCard.transform, 0, 0, 860, 334, new Color(0,0,0,0));

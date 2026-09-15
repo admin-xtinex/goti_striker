@@ -253,11 +253,26 @@ namespace PitStriker.AI
                 dynamicAngleVariance *= 0.85f;
             }
 
+            // Difficulty scales how wide the bot's error is allowed to be. Easy keeps the
+            // long-standing spread exactly as it was; Hard and Pro narrow it, so the bot lands
+            // closer to its intended line without changing any of the tactics above.
+            dynamicAngleVariance *= PitStriker.Gameplay.GameDifficulty.BotAimErrorMultiplier;
+
+            // A bonus shot is one the bot earned by conquering a pit or striking an opponent, so
+            // it is already ahead. Widen the error sharply here: the bot keeps playing rather
+            // than having its turn cut short, but rarely converts two pits back to back.
+            bool isBonusShot = TurnManager.Instance != null && TurnManager.Instance.ShotsTakenThisTurn > 0;
+            if (isBonusShot)
+            {
+                dynamicAngleVariance *= PitStriker.Gameplay.GameDifficulty.BotBonusShotErrorMultiplier;
+            }
+
             float angleOffset = UnityEngine.Random.Range(-dynamicAngleVariance, dynamicAngleVariance);
             Vector3 finalAimDir = Quaternion.Euler(0f, angleOffset, 0f) * baseDir;
 
             // Realistic shot weight variation (+/- 15% on long shots, +/- 6.5% on short shots)
-            float forceSpread = distance > 7.0f ? 0.15f : 0.065f;
+            float forceSpread = (distance > 7.0f ? 0.15f : 0.065f)
+                                * PitStriker.Gameplay.GameDifficulty.BotForceErrorMultiplier;
             float forceErrorFrac = UnityEngine.Random.Range(-forceSpread, forceSpread);
             float maxForceClamp = isTossPhase ? 26.0f : 24.0f;
             float finalForce = Mathf.Clamp(calibratedForce * (1f + forceErrorFrac), 1.0f, maxForceClamp);

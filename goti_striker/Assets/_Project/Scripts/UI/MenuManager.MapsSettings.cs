@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.UI;
+using PitStriker.Gameplay;   // GameDifficulty / DifficultyMode for the difficulty picker
 
 namespace PitStriker.UI
 {
@@ -48,6 +49,12 @@ namespace PitStriker.UI
         [SerializeField] private Button _btnQualityHigh;
         [SerializeField] private Text _displayInfoText;
 
+        // Difficulty picker (Gameplay tab) — replaces the old static aim-assist readout.
+        [SerializeField] private Button _btnDiffEasy;
+        [SerializeField] private Button _btnDiffHard;
+        [SerializeField] private Button _btnDiffPro;
+        [SerializeField] private Text _difficultyDescText;
+
         private ScreenType _settingsReturn = ScreenType.Home;
         private SettingsCategory _activeSettingsCategory = SettingsCategory.Audio;
         private string _selectedCourseId = "village_lane";
@@ -93,6 +100,30 @@ namespace PitStriker.UI
             if (btn == null) return;
             var img = btn.GetComponent<Image>();
             if (img != null) img.color = active ? Gold : Card;
+        }
+
+        /// <summary>
+        /// Applies a difficulty choice. Offline only — an online match ignores this and plays at
+        /// Hard, so the setting is stored but has no effect until the player returns to offline.
+        /// </summary>
+        private void SetDifficulty(DifficultyMode mode)
+        {
+            GameDifficulty.CurrentMode = mode;   // persisted by the config itself
+            RefreshDifficultyButtons();
+        }
+
+        private void RefreshDifficultyButtons()
+        {
+            DifficultyMode current = GameDifficulty.CurrentMode;
+            SetTabColor(_btnDiffEasy, current == DifficultyMode.Easy);
+            SetTabColor(_btnDiffHard, current == DifficultyMode.Hard);
+            SetTabColor(_btnDiffPro, current == DifficultyMode.Pro);
+
+            if (_difficultyDescText != null)
+            {
+                _difficultyDescText.text = GameDifficulty.Description(current)
+                                         + "  Offline only; online always plays Hard.";
+            }
         }
 
         private void BindMapsSettingsButtons()

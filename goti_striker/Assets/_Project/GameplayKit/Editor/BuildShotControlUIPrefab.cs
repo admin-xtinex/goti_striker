@@ -19,7 +19,7 @@ namespace PitStriker.GameplayKit.EditorTools
         // height is width / 0.5628 and the sprite is never distorted.
         const float PanelWidth = 200f;
         const float PanelHeight = 356f;
-        const float PanelMargin = 28f;
+        const float PanelMargin = 84f;
         const float ThumbSize = 96f;
 
         [MenuItem("Pit Striker/GameplayKit/Build Shot Control UI Prefab")]

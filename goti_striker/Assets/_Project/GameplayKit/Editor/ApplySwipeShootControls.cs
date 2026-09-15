@@ -84,7 +84,7 @@ namespace PitStriker.GameplayKit.EditorTools
 
         // Reference-pixel geometry; mirrors BuildShotControlUIPrefab so prefab and patched
         // instances end up identical. Panel art is 941x1672, so 200 wide => 356 tall.
-        const float PanelWidth = 200f, PanelHeight = 356f, PanelMargin = 28f, ThumbSize = 96f;
+        const float PanelWidth = 200f, PanelHeight = 356f, PanelMargin = 84f, ThumbSize = 96f;
         const string PanelSprite = "Assets/_Project/GameplayKit/UI/Sprites/SwipeShootPanel.png";
         const string ThumbSprite = "Assets/_Project/GameplayKit/UI/Sprites/SwipeShootThumb.png";
 
