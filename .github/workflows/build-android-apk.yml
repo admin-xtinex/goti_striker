@@ -1,0 +1,116 @@
+name: Build and Upload Android APK
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths-ignore:
+      - 'README.md'
+      - 'Docs/**'
+      - 'emulator_screen.png'
+      - 'build_apk.log'
+  workflow_dispatch:
+    inputs:
+      runner_type:
+        description: 'Choose runner type'
+        required: true
+        default: 'github-hosted (Ubuntu)'
+        type: choice
+        options:
+          - 'github-hosted (Ubuntu)'
+          - 'self-hosted (Windows PC)'
+
+jobs:
+  # Job 1: Cloud GitHub-hosted runner (GameCI Docker container)
+  build-cloud:
+    name: Build on GitHub Cloud (GameCI)
+    if: github.event_name != 'workflow_dispatch' || inputs.runner_type == 'github-hosted (Ubuntu)'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Restore Library cache
+        uses: actions/cache@v4
+        with:
+          path: goti_striker/Library
+          key: Library-Android-${{ hashFiles('goti_striker/Packages/manifest.json', 'goti_striker/ProjectSettings/ProjectVersion.txt') }}
+          restore-keys: |
+            Library-Android-
+
+      - name: Build Android APK
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS || 'xtinex123' }}
+          ANDROID_KEYALIAS_NAME: ${{ secrets.ANDROID_KEYALIAS_NAME || 'pitstriker' }}
+          ANDROID_KEYALIAS_PASS: ${{ secrets.ANDROID_KEYALIAS_PASS || 'xtinex123' }}
+        with:
+          targetPlatform: Android
+          projectPath: goti_striker
+          unityVersion: 6000.6.0f1
+          buildMethod: PitStriker.EditorTools.BuildAPK.BuildAndroidPlayer
+          buildsPath: Builds/Android
+
+      - name: Find Built APK
+        id: find_apk
+        run: |
+          APK_FILE=$(find . -name "*.apk" -type f | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            echo "::error::No APK file found after build!"
+            exit 1
+          fi
+          echo "Found APK at: $APK_FILE"
+          echo "apk_path=$APK_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitStriker-Android-Cloud-v${{ github.run_number }}
+          path: ${{ steps.find_apk.outputs.apk_path }}
+          retention-days: 14
+
+  # Job 2: Self-hosted runner (Uses your already-licensed local Unity on Windows with ZERO license secrets needed!)
+  build-self-hosted:
+    name: Build on Self-Hosted Windows Runner
+    if: github.event_name == 'workflow_dispatch' && inputs.runner_type == 'self-hosted (Windows PC)'
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Execute Unity Android Batch Build
+        shell: powershell
+        run: |
+          $unityPath = "C:\Program Files\Unity\Hub\Editor\6000.6.0f1\Editor\Unity.exe"
+          if (-not (Test-Path $unityPath)) {
+            Write-Error "Unity 6000.6.0f1 not found at $unityPath"
+            exit 1
+          }
+          Write-Host "Running Unity Android build via batchmode..."
+          & $unityPath -batchmode -projectPath goti_striker -executeMethod PitStriker.EditorTools.BuildAPK.BuildAndroidPlayerBatch -quit -logfile unity_build.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content unity_build.log -Tail 100
+            Write-Error "Unity batch build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitStriker-Android-Local-v${{ github.run_number }}
+          path: Builds/Android/*.apk
+          retention-days: 14

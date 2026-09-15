@@ -1,0 +1,90 @@
+# ==========================================
+# Goti Striker — Unity & Repository .gitignore
+# ==========================================
+
+# Unity generated directories & files
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Mm]emoryCaptures/
+**/[Uu]pmCache/
+**/.utmp/
+**/Assets/Plugins/Editor/JetBrains*
+**/Assets/AssetStoreTools*
+
+# Unity meta files for ignored folders
+**/[Ll]ibrary.meta
+**/[Tt]emp.meta
+**/[Bb]uild.meta
+**/[Ll]ogs.meta
+
+# IDE / editor
+.vs/
+.idea/
+.vscode/
+*.csproj
+!Server/**/*.csproj
+*.unityproj
+*.sln
+!Server/**/*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity crash reports & traces
+sysinfo.txt
+*.stackdump
+crashlytics-build.properties
+
+# Build artifacts
+*.apk
+*.aab
+*.unitypackage
+*.app
+*.ipa
+
+# ==========================================
+# SECRETS — never commit
+# ==========================================
+# Android signing
+**/[Kk]eystore/
+*.keystore
+*.jks
+keystore.properties
+# Generic credentials
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+**/secrets.json
+**/credentials.json
+**/serviceAccount*.json
+# Unity services / licence
+**/*.ulf
+**/Unity_lic.ulf
+**/ProjectSettings/UnityConnectSettings.asset.local
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python tooling caches (Tools/Blender)
+__pycache__/
+*.pyc
+run_log.txt
