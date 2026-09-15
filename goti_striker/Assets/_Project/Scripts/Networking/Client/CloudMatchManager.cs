@@ -210,9 +210,13 @@ namespace PitStriker.Networking.Client
             marble.ApplyImpulse(input.LaunchDirection, input.Force, input.MaxPitch);
             OnNetworkShotExecutedEvent?.Invoke(input.PlayerIndex, input.LaunchDirection, input.Force);
 
-            // Same camera behaviour as offline: follow whoever is shooting.
-            FocusCameraOnMarble(marble);
-            Debug.Log($"[CLOUD MATCH] Replaying opponent shot {input.ShotId} (force {input.Force:F1}).");
+            // Stay on our own marble. Offline follows whoever is shooting because one screen is
+            // shared between players; online each player has their own screen, so switching to
+            // the opponent's marble takes the view away from the person holding the device and
+            // discards the orbit they set up for their next shot.
+            FocusCameraOnLocalMarble();
+            Debug.Log($"[CLOUD MATCH] Replaying opponent shot {input.ShotId} (force {input.Force:F1}); "
+                    + "camera stays on the local marble.");
         }
 
         /// <summary>The opponent's settled result. Used to reconcile our replay.</summary>
@@ -315,13 +319,42 @@ namespace PitStriker.Networking.Client
             var tm = TurnManager.Instance;
             if (tm == null) return;
             tm.CurrentPlayerIndex = state.ActivePlayerIndex;
+
+            // Force the authoritative score into TurnManager on EVERY accepted state, even when
+            // the server's numbers have not moved.
+            //
+            // This is what stops a desync becoming permanent. SendLocalShotResult reads strokes
+            // from TurnManager, which counts every shot the player takes locally. The server only
+            // counts shots whose result it accepted. So each abandoned shot — a stalled client, a
+            // dropped result — leaves the local count one higher than authority, and nothing
+            // brought it back: the stats event above only fires when the server's value CHANGES,
+            // and after an abandoned shot it deliberately does not change ("state unchanged").
+            //
+            // The drift then compounds until it exceeds MaxShotsPerTurn, at which point the
+            // server's sanity check rejects every result the player sends, every shot times out,
+            // and the player is locked out of the match for good. Observed live as
+            // "stroke delta implausible (1 -> 6)".
+            ApplyAuthoritativeStats(tm, 0, state.Player0);
+            ApplyAuthoritativeStats(tm, 1, state.Player1);
         }
 
-        private void FocusCameraOnMarble(MarbleController marble)
+        private static void ApplyAuthoritativeStats(TurnManager tm, int playerIdx, CompactPlayerData data)
         {
-            if (marble == null) return;
-            var cam = UnityEngine.Object.FindAnyObjectByType<PitStriker.CameraSystem.SmoothFollowCamera>();
-            if (cam != null) cam.SetTarget(marble.transform);
+            var players = tm.Players;
+            if (players == null || playerIdx >= players.Count) return;
+
+            var p = players[playerIdx];
+            if (p == null) return;
+
+            if (p.totalStrokes != data.TotalStrokes || p.currentPit != data.CurrentPit)
+            {
+                Debug.Log($"[CLOUD MATCH] Correcting P{playerIdx + 1} local score to authority: "
+                        + $"strokes {p.totalStrokes}->{data.TotalStrokes}, pit {p.currentPit}->{data.CurrentPit}.");
+            }
+
+            p.totalStrokes = data.TotalStrokes;
+            p.currentPit = data.CurrentPit;
+            p.isFinished = data.IsFinished;
         }
 
         private void RegisterClientEvents()
@@ -581,12 +614,12 @@ namespace PitStriker.Networking.Client
                 }
             }
 
-            // Ensure camera tracks the active shooting marble for both players
-            var cam = UnityEngine.Object.FindAnyObjectByType<PitStriker.CameraSystem.SmoothFollowCamera>();
-            if (cam != null && shotMarble != null)
-            {
-                cam.SetTarget(shotMarble.transform);
-            }
+            // Each player keeps their own point of view. The camera deliberately does NOT follow
+            // whoever is shooting: yanking it to the opponent's marble every turn stole the view
+            // the player had aimed with, and undid any orbit they had set up. Online this is a
+            // per-client view, not a shared broadcast camera, so it stays on the local marble and
+            // the opponent's shot plays out wherever it happens to be on screen.
+            FocusCameraOnLocalMarble();
 
             OnNetworkShotExecutedEvent?.Invoke(playerIndex, intent.Direction, intent.Force);
         }
