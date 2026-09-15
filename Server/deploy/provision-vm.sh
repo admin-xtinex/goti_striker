@@ -11,11 +11,17 @@
 # =============================================================================
 set -euo pipefail
 
+# These names match what is already deployed, so re-running this script is a no-op
+# instead of creating a parallel set of resources. The "pitstriker"/"pitstricker"
+# spellings are the live ones and are deliberately NOT renamed to goti_striker:
+# a GCP project ID is immutable, and renaming the VM/tag would orphan the firewall rule.
 PROJECT_ID="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
 REGION="${GCP_REGION:-us-central1}"
 ZONE="${GCP_ZONE:-us-central1-a}"
 INSTANCE="${GCP_INSTANCE:-pitstriker-server-01}"
 IP_NAME="${GCP_IP_NAME:-pitstriker-static-ip}"
+NET_TAG="${GCP_NET_TAG:-pitstriker-server}"
+FW_RULE="${GCP_FW_RULE:-allow-pitstriker-ws}"
 
 if [ -z "$PROJECT_ID" ]; then
   echo "ERROR: no project set. Run: gcloud config set project <PROJECT_ID>"
@@ -31,10 +37,10 @@ echo "=============================================="
 
 # 1. Firewall for the WebSocket port
 echo "[1/4] Firewall rule for tcp:7777..."
-gcloud compute firewall-rules create allow-gotistriker-ws \
+gcloud compute firewall-rules create "$FW_RULE" \
   --project="$PROJECT_ID" \
   --allow tcp:7777 \
-  --target-tags=gotistriker-server \
+  --target-tags="$NET_TAG" \
   --description="Goti Striker multiplayer WebSocket" \
   --quiet 2>/dev/null || echo "      already exists"
 
@@ -54,7 +60,7 @@ gcloud compute instances create "$INSTANCE" \
   --zone="$ZONE" \
   --machine-type=e2-micro \
   --address="$STATIC_IP" \
-  --tags=gotistriker-server \
+  --tags="$NET_TAG" \
   --image-family=debian-12 \
   --image-project=debian-cloud \
   --boot-disk-size=10GB \

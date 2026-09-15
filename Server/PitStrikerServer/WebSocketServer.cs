@@ -417,7 +417,7 @@ namespace PitStrikerServer
 
                     if (tickCount % 200 == 0) // Every 10 seconds
                     {
-                        _roomManager.RemoveEmptyRooms();
+                        _roomManager.PruneDeadRooms();
                     }
                 }
                 catch (Exception ex)

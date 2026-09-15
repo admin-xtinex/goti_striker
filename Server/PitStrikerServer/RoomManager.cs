@@ -136,8 +136,18 @@ namespace PitStrikerServer
         {
             foreach (var room in _rooms.Values)
             {
-                // Tick the authoritative match simulation
-                room.MatchEngine.Tick(dt);
+                // Track how long the room has been without a live socket, so an abandoned
+                // match can be pruned. A disconnect keeps the player slot occupied for the
+                // reconnect window, so IsEmpty never becomes true on its own.
+                if (room.HasConnectedPlayer) room.NoConnectionSinceUtc = null;
+                else room.NoConnectionSinceUtc ??= DateTime.UtcNow;
+
+                // Nobody is listening: do not advance turn timers. Without this an abandoned
+                // room ticks its turn clock forever, flipping turns between two absent players.
+                if (room.HasConnectedPlayer)
+                {
+                    room.MatchEngine.Tick(dt);
+                }
 
                 // Check disconnect grace period
                 if (room.DisconnectGraceStartUtc.HasValue)
@@ -154,20 +164,47 @@ namespace PitStrikerServer
                             w.WriteInt32(remainingPlayer); // Remaining player is declared winner
                             w.WriteString("Opponent failed to reconnect within grace window.");
                         });
+
+                        // The match is decided; nothing further will happen in this room.
+                        room.MatchOver = true;
                     }
                 }
             }
         }
 
-        public void RemoveEmptyRooms()
+        /// <summary>
+        /// Drops rooms nobody can come back to. Emptiness is not enough on its own: a
+        /// disconnect keeps the slot so the player can reconnect, so a fully abandoned match
+        /// is only collected once its reconnect window has also expired.
+        /// </summary>
+        public void PruneDeadRooms()
         {
+            // A little past the reconnect window, so a player racing the deadline still lands.
+            double deadAfter = NetworkProtocol.DisconnectGracePeriod + 10.0;
+
             foreach (var kvp in _rooms)
             {
-                if (kvp.Value.IsEmpty)
+                Room room = kvp.Value;
+                string? reason = null;
+
+                if (room.IsEmpty)
                 {
-                    _rooms.TryRemove(kvp.Key, out _);
-                    Console.WriteLine($"[ROOM MANAGER] Pruned empty room: {kvp.Key}");
+                    reason = "empty";
                 }
+                else if (!room.HasConnectedPlayer && room.NoConnectionSinceUtc.HasValue)
+                {
+                    double idle = (DateTime.UtcNow - room.NoConnectionSinceUtc.Value).TotalSeconds;
+                    if (idle >= deadAfter) reason = $"abandoned {idle:F0}s";
+                }
+                else if (room.MatchOver && !room.IsFull)
+                {
+                    reason = "match over";
+                }
+
+                if (reason == null) continue;
+
+                _rooms.TryRemove(kvp.Key, out _);
+                Console.WriteLine($"[ROOM MANAGER] Pruned room {kvp.Key} ({reason})");
             }
         }
 

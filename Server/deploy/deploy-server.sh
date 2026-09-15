@@ -12,7 +12,9 @@
 # =============================================================================
 set -euo pipefail
 
-PROJECT_ID="${GCP_PROJECT_ID:-pitstriker-prod}"
+# NOTE: the GCP project is "pitstricker" — the original misspelling. It is the real
+# project ID and cannot be renamed, so it stays as-is even though the repo is goti_striker.
+PROJECT_ID="${GCP_PROJECT_ID:-pitstricker}"
 ZONE="${GCP_ZONE:-us-central1-a}"
 INSTANCE="${GCP_INSTANCE:-pitstriker-server-01}"
 REMOTE_DIR="/opt/gotistriker"

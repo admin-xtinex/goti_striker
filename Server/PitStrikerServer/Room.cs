@@ -14,6 +14,20 @@ namespace PitStrikerServer
         public bool IsFull => Player0 != null && Player1 != null;
         public bool IsEmpty => Player0 == null && Player1 == null;
 
+        /// <summary>
+        /// True while at least one player still holds a live socket. A disconnect deliberately
+        /// leaves the slot occupied so ReconnectRequest can re-seat the player, which means
+        /// <see cref="IsEmpty"/> stays false for an abandoned match — occupancy alone is not a
+        /// liveness signal.
+        /// </summary>
+        public bool HasConnectedPlayer => Player0?.IsConnected == true || Player1?.IsConnected == true;
+
+        /// <summary>When the room last had no connected player at all. Null while someone is on.</summary>
+        public DateTime? NoConnectionSinceUtc { get; set; }
+
+        /// <summary>Set once the match has ended (forfeit or completion) so the room can be pruned.</summary>
+        public bool MatchOver { get; set; }
+
         public DateTime? DisconnectGraceStartUtc { get; set; }
         public int DisconnectedPlayerIndex { get; set; } = -1;
 

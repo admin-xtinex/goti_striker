@@ -95,3 +95,6 @@ desktop.ini
 __pycache__/
 *.pyc
 run_log.txt
+
+# Deploy staging area (self-contained binary, rebuilt every deploy)
+Server/deploy/.stage/
