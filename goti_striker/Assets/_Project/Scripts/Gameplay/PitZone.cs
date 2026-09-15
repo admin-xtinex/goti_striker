@@ -82,6 +82,22 @@ namespace PitStriker.Gameplay
         }
 
         /// <summary>
+        /// The real capture test: the marble must be inside the basin AND travelling slowly
+        /// enough to stay there. Geometry alone is not enough — a marble crossing the pit at
+        /// pace passes over it, which is the whole character of these shallow earthen pits.
+        ///
+        /// This exists because the speed gate used to live only in OnTriggerStay. Every other
+        /// caller tested <see cref="IsMarbleInsidePit"/> on its own and so captured marbles that
+        /// were still moving; TurnManager's post-settle audit went further and called Halt() on
+        /// them, which is why a marble rolling across a pit appeared to be grabbed and held.
+        /// </summary>
+        public bool IsMarbleCaptured(MarbleController marble)
+        {
+            if (!IsMarbleInsidePit(marble)) return false;
+            return marble.CurrentSpeed <= _maxCaptureSpeed;
+        }
+
+        /// <summary>
         /// Explicitly marks this pit as sunk by the given marble, firing audio, VFX, and game events.
         /// </summary>
         public void MarkSunk(MarbleController marble, bool fireEvent = true)

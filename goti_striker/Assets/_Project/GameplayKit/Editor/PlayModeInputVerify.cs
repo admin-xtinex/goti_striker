@@ -189,6 +189,28 @@ namespace PitStriker.GameplayKit.EditorTools
                 if (!centreIsFree) { fails++; sb.AppendLine("FAIL panel covers the play view centre"); }
             }
 
+            // --- difficulty actually drives the aim guide ---------------------------------
+            var saved = PitStriker.Gameplay.GameDifficulty.CurrentMode;
+            sb.AppendLine($"online active (pins to Hard): {PitStriker.Gameplay.GameDifficulty.IsOnlineActive}");
+            foreach (PitStriker.Gameplay.DifficultyMode m in
+                     System.Enum.GetValues(typeof(PitStriker.Gameplay.DifficultyMode)))
+            {
+                PitStriker.Gameplay.GameDifficulty.CurrentMode = m;
+                sb.AppendLine($"  {m,-5} effective={PitStriker.Gameplay.GameDifficulty.EffectiveMode,-5} "
+                            + $"guide={PitStriker.Gameplay.GameDifficulty.ShowTrajectoryGuide,-5} "
+                            + $"len={PitStriker.Gameplay.GameDifficulty.TrajectoryLengthMultiplier:F2} "
+                            + $"force={PitStriker.Gameplay.GameDifficulty.LaunchForceMultiplier:F2} "
+                            + $"botAim={PitStriker.Gameplay.GameDifficulty.BotAimErrorMultiplier:F2}");
+            }
+            PitStriker.Gameplay.GameDifficulty.CurrentMode = saved;
+
+            // The settings picker must actually exist in the live menu, not just in code.
+            int diffButtons = 0;
+            foreach (var b in Object.FindObjectsByType<UnityEngine.UI.Button>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (b.name == "Btn_DiffEasy" || b.name == "Btn_DiffHard" || b.name == "Btn_DiffPro") diffButtons++;
+            sb.AppendLine($"difficulty buttons in live menu: {diffButtons}/3");
+            if (diffButtons != 3) { fails++; sb.AppendLine("FAIL difficulty picker missing from the settings UI"); }
+
             sb.Insert(0, fails == 0 ? "PASS\n\n" : $"FAIL ({fails} problem(s))\n\n");
             return sb.ToString();
         }

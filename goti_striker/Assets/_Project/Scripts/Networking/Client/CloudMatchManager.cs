@@ -608,7 +608,9 @@ namespace PitStriker.Networking.Client
             {
                 foreach (var pz in FindObjectsByType<PitZone>(FindObjectsSortMode.None))
                 {
-                    if (pz.IsMarbleInsidePit(localMarble)) { pitConquered = pz.PitNumber; break; }
+                    // Same rule the offline game uses, so what we report as a capture is what
+                    // the pit would actually have kept.
+                    if (pz.IsMarbleCaptured(localMarble)) { pitConquered = pz.PitNumber; break; }
                 }
             }
 

@@ -770,7 +770,9 @@ namespace PitStriker.Gameplay
                         Debug.Log($"[PIT AUDIT] Pit #{pit.PitNumber} (target={ActivePlayer.currentPit}) vs Active {player.name}: dist={dist:F2}m, relY={relY:F2}m, isInside={pit.IsMarbleInsidePit(marble)}");
                     }
 
-                    if (pit.IsMarbleInsidePit(marble))
+                    // Capture requires pace as well as position: a marble still travelling
+                    // rolls across the pit instead of being caught and halted here.
+                    if (pit.IsMarbleCaptured(marble))
                     {
                         marble.Halt();
 
@@ -1387,6 +1389,20 @@ namespace PitStriker.Gameplay
             if (index >= _players.Count) return;
 
             PlayerData p = _players[index];
+
+            // The toss phase steps through players with its own _tossPlayerIndex and used to
+            // leave CurrentPlayerIndex untouched, so ActivePlayer stayed pointing at player 0
+            // for the whole toss. Two things broke off the back of that:
+            //
+            //   - CanAim() only blocks input when ActivePlayer.isAI. With ActivePlayer stuck on
+            //     the human, input stayed open during a bot's toss while the swipe controller was
+            //     bound to the BOT's marble below — so the human had to throw for the bot.
+            //   - AIMarbleController.ShouldAbortTurn bails when TurnManager.ActivePlayer is not
+            //     the bot it was started for, so a bot's toss aborted instantly and never threw.
+            //
+            // Keeping the two indices in step fixes both and costs nothing: the toss order is
+            // driven by the caller, this only reflects it.
+            CurrentPlayerIndex = index;
 
             // Staging: Position this tossing player at the start line and make visible
             if (p.marble != null)
