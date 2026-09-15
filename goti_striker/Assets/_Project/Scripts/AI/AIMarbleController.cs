@@ -84,6 +84,35 @@ namespace PitStriker.AI
             _aiTurnCoroutine = StartCoroutine(AITurnRoutine(aiPlayer));
         }
 
+        /// <summary>
+        /// Stops any bot mid-turn. Called when a HUMAN becomes the active player: TakeAITurn only
+        /// cancels the previous bot when another bot follows, so without this a bot's coroutine
+        /// keeps running through a human's turn, steals the aim preview, and can still fire.
+        /// </summary>
+        public void CancelAITurn()
+        {
+            if (_aiTurnCoroutine != null)
+            {
+                StopCoroutine(_aiTurnCoroutine);
+                _aiTurnCoroutine = null;
+            }
+            if (SwipeLaunchController.Instance != null) SwipeLaunchController.Instance.HideAimPreview();
+        }
+
+        /// <summary>
+        /// True when this bot must stop acting: the match ended, we are in a menu, or — the case
+        /// that actually bit — it is simply no longer this bot's turn.
+        /// </summary>
+        private static bool ShouldAbortTurn(TurnManager.PlayerData aiPlayer)
+        {
+            var tm = TurnManager.Instance;
+            if (tm == null) return true;
+            if (tm.CurrentState == TurnManager.GameState.MatchVictory) return true;
+            if (tm.CurrentState == TurnManager.GameState.Menu) return true;
+            if (tm.ActivePlayer != aiPlayer) return true;   // turn moved on while we were thinking
+            return false;
+        }
+
         private IEnumerator AITurnRoutine(TurnManager.PlayerData aiPlayer)
         {
             // 1. Brief pause to allow camera to smoothly frame the AI marble
@@ -241,7 +270,7 @@ namespace PitStriker.AI
 
             while (elapsed < _thinkTimeSeconds)
             {
-                if (TurnManager.Instance == null || TurnManager.Instance.CurrentState == TurnManager.GameState.MatchVictory || TurnManager.Instance.CurrentState == TurnManager.GameState.Menu)
+                if (ShouldAbortTurn(aiPlayer))
                 {
                     if (SwipeLaunchController.Instance != null) SwipeLaunchController.Instance.HideAimPreview();
                     _aiTurnCoroutine = null;
@@ -265,7 +294,10 @@ namespace PitStriker.AI
                 SwipeLaunchController.Instance.HideAimPreview();
             }
 
-            if (TurnManager.Instance == null || TurnManager.Instance.CurrentState == TurnManager.GameState.MatchVictory || TurnManager.Instance.CurrentState == TurnManager.GameState.Menu)
+            // Last check before committing an impulse. Without it a bot whose turn has already
+            // ended fires anyway, which starts the settle routine and parks the game in Rolling —
+            // so the human whose turn it now is cannot aim at all.
+            if (ShouldAbortTurn(aiPlayer))
             {
                 _aiTurnCoroutine = null;
                 yield break;

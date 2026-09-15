@@ -1329,6 +1329,14 @@ namespace PitStriker.Gameplay
             }
             else
             {
+                // A human is up: make sure no bot is still mid-turn. TakeAITurn only cancels the
+                // previous bot when another bot follows it, so a leftover coroutine would keep
+                // driving the aim preview and could still fire its marble on the human's turn.
+                if (PitStriker.AI.AIMarbleController.Instance != null)
+                {
+                    PitStriker.AI.AIMarbleController.Instance.CancelAITurn();
+                }
+
                 OnStatusMessage?.Invoke($"{ActivePlayer.name.ToUpper()}'s TURN • TARGET: PIT {ActivePlayer.currentPit}");
             }
         }
@@ -1638,6 +1646,52 @@ namespace PitStriker.Gameplay
                     PitStriker.Audio.AudioManager.Instance.PlayTossMusic();
                 }
             }
+        }
+
+        // --- stuck-state watchdog -------------------------------------------------------
+        // Rolling and Evaluating are transient: a coroutine owns each and is expected to hand
+        // back to ReadyToAim. If one dies without doing so, CanAim() stays false forever and the
+        // player simply cannot shoot on their turn, with no error and no way out but a restart.
+        // Reported live as "my turn came but I was unable to play" in a 1 human vs 3 bots match.
+        //
+        // This only fires when the state is transient, BOTH owning coroutines are gone, and every
+        // marble has been still for a while — conditions that cannot hold during normal play.
+        private float _stuckStateTimer;
+        private const float StuckStateRecoverySeconds = 2.5f;
+
+        private void Update()
+        {
+            bool transient = CurrentState == GameState.Rolling || CurrentState == GameState.Evaluating;
+            bool unowned = _settleCoroutine == null && _evaluateCoroutine == null;
+
+            // Online play has its own authority for phase; never second-guess it here.
+            bool online = PitStriker.Networking.Client.CloudMatchManager.Instance != null
+                          && PitStriker.Networking.Client.CloudMatchManager.Instance.IsOnlineMatchActive;
+
+            if (!transient || !unowned || online || AnyMarbleMoving())
+            {
+                _stuckStateTimer = 0f;
+                return;
+            }
+
+            _stuckStateTimer += Time.deltaTime;
+            if (_stuckStateTimer < StuckStateRecoverySeconds) return;
+
+            _stuckStateTimer = 0f;
+            Debug.LogWarning($"[TURN MANAGER] Recovering from stuck {CurrentState} state: no settle or "
+                           + "evaluate coroutine is running and nothing is moving. Returning to ReadyToAim.");
+            SetState(GameState.ReadyToAim);
+        }
+
+        private bool AnyMarbleMoving()
+        {
+            if (_players == null) return false;
+            for (int i = 0; i < _players.Count; i++)
+            {
+                MarbleController m = _players[i]?.marble;
+                if (m != null && m.gameObject.activeInHierarchy && !m.IsRetired && m.IsMoving) return true;
+            }
+            return false;
         }
 
         private void SetState(GameState newState)
