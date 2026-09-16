@@ -27,7 +27,7 @@ namespace PitStriker.UI
         Vector2 _thumbHome;
         Image _up, _down, _dial;
         Text _upCaption, _downCaption;
-        CanvasGroup _handGroup;
+        CanvasGroup _handGroup, _visibility;
         RectTransform _hand;
         float _power;
 
@@ -131,6 +131,16 @@ namespace PitStriker.UI
 
         void Update()
         {
+            // Only on the match screen: the control used to sit over the main menu before a game.
+            // Hidden by alpha, not deactivated, so the touch handling around it is unchanged.
+            if (_visibility == null)
+            {
+                _visibility = GetComponent<CanvasGroup>();
+                if (_visibility == null) _visibility = gameObject.AddComponent<CanvasGroup>();
+            }
+            bool inMatch = MenuManager.Instance == null || MenuManager.Instance.CurrentScreen == MenuManager.ScreenType.InGame;
+            _visibility.alpha = inMatch ? 1f : 0f;
+
             if (_up == null) return;
             float t = Time.unscaledTime;
 

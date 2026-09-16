@@ -40,6 +40,10 @@ namespace PitStriker.GameplayKit.UI
 
         private void Awake()
         {
+            // Presentation from the first frame, so the old bar art never shows (e.g. on the menu).
+            if (GetComponent<PitStriker.UI.SwipeControlSkin>() == null)
+                gameObject.AddComponent<PitStriker.UI.SwipeControlSkin>();
+
             _config = ShotModeConfig.Instance != null
                 ? ShotModeConfig.Instance
                 : FindAnyObjectByType<ShotModeConfig>();
