@@ -147,6 +147,17 @@ namespace PitStriker.EditorTools
                 : AndroidArchitecture.ARM64 | AndroidArchitecture.ARMv7;
             Debug.Log($"<color=#00FFAA><b>[BUILD APK]</b> Target architectures: "
                     + $"{PlayerSettings.Android.targetArchitectures}</color>");
+            // Vulkan pre-transform OFF.
+            //
+            // On an iQOO 7 (Funtouch OS, Android 14) and a Samsung the game rendered into only ~45%
+            // of the screen with the rest black - on every launch, in either hold, unaffected by
+            // rotation - while Unity's own splash screen filled the display. The splash presents
+            // directly; the game renders to an intermediate target (HDR + MSAA) and blits with the
+            // display pre-rotation applied, and a portrait-sized target on a landscape surface
+            // covers about 45% of the width. The build with this off fixed both devices. Rotation
+            // is left to the compositor at a small cost.
+            PlayerSettings.vulkanEnablePreTransform = false;
+
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
