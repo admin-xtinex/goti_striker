@@ -395,7 +395,7 @@ namespace PitStriker.Networking.Client
             FindSceneMarbles();
 
             _currentPhase = CloudMatchPhase.ReadyToAim;
-            _activePlayerIndex = 0;
+            _activePlayerIndex = 0;   // placeholder only — the server picks the opener at random
             _turnTimerRemaining = NetworkProtocol.DefaultTurnDuration;
 
             // v2: both clients start turn 1 from the same accepted state.
@@ -404,7 +404,13 @@ namespace PitStriker.Networking.Client
             _localPendingShotId = -1;
             _replayingShotId = -1;
             _awaitingShotIdForLocalShot = false;
-            _reconciled = true;
+
+            // Keep input closed until the server's first AcceptedState says whose turn it is.
+            // The opening player is random, so the 0 above is a guess; with _reconciled = true
+            // the second seat could briefly see "your turn" and aim before being corrected. The
+            // server sends AcceptedState immediately after MatchStarted (rematches included), and
+            // HandleAcceptedState reopens input.
+            _reconciled = false;
 
             // Reset marble positions
             if (_marble0 != null)

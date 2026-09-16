@@ -196,7 +196,10 @@ namespace PitStrikerServer
                     double idle = (DateTime.UtcNow - room.NoConnectionSinceUtc.Value).TotalSeconds;
                     if (idle >= deadAfter) reason = $"abandoned {idle:F0}s";
                 }
-                else if (room.MatchOver && !room.IsFull)
+                // A decided match is collected as soon as nobody is left on it. This used to
+                // require !IsFull, but a disconnected player keeps their slot for reconnect, so a
+                // forfeited room still counted as full and waited out the abandoned timer instead.
+                else if (room.MatchOver && !room.HasConnectedPlayer)
                 {
                     reason = "match over";
                 }

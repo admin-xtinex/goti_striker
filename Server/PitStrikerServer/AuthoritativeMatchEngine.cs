@@ -80,11 +80,21 @@ namespace PitStrikerServer
             AcceptedMarbles[1] = new MarbleFinalState { MarbleId = 1, Position = Tee1, IsRetired = false, InPitNumber = 0 };
         }
 
+        /// <summary>
+        /// Chooses who takes the first turn. Random by default.
+        ///
+        /// Online matches have no opening toss, and this used to be a hard-coded 0 — so whoever
+        /// created or first entered the room took the first shot in every single match, a fixed
+        /// first-mover advantage. Swappable so tests can pin the opener and stay deterministic.
+        /// </summary>
+        public static Func<int> OpeningPlayerPicker = () => Random.Shared.Next(2);
+
         public void StartMatch()
         {
             ResetMatch();
+            Room.MatchOver = false;   // a rematch starts clean
             Phase = CloudMatchPhase.ReadyToAim;
-            ActivePlayerIndex = 0;
+            ActivePlayerIndex = OpeningPlayerPicker() == 1 ? 1 : 0;
             TurnId = 1;
             TurnTimerRemaining = NetworkProtocol.DefaultTurnDuration;
             Console.WriteLine($"[ROOM {Room.RoomCode}] Match started! Active player: P{ActivePlayerIndex + 1}, turn {TurnId}");
@@ -307,6 +317,11 @@ namespace PitStrikerServer
         public void Tick(float dt)
         {
             ServerTick++;
+
+            // A decided match must not keep running its turn clock. After a forfeit the room
+            // lingers until it is pruned, and without this it went on logging "Turn timer
+            // expired" and passing turns between players in a match that was already over.
+            if (Room.MatchOver) return;
 
             if (Phase == CloudMatchPhase.ReadyToAim)
             {

@@ -21,6 +21,10 @@ namespace PitStrikerServer.Tests
                 return await V2ProtocolTests.RunAsync();
             }
 
+            // The legacy suite below asserts "Player 0 should be active first"; the opener is
+            // random in production, so pin it here to keep these tests deterministic.
+            AuthoritativeMatchEngine.OpeningPlayerPicker = () => 0;
+
             if (args.Length > 0 && args[0].Equals("--join", StringComparison.OrdinalIgnoreCase))
             {
                 string roomToJoin = args.Length > 1 ? args[1] : "9CLGLF";

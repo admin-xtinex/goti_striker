@@ -26,6 +26,14 @@ namespace PitStrikerServer.Tests
             _passed = 0; _failed = 0;
             Console.WriteLine("=== Pit Striker v2 shot-relay protocol test ===\n");
 
+            // ---- opening player + finished-match rules (engine level) ----
+            RunOpeningAndMatchOverChecks();
+
+            // The flow below scripts "index 0 strikes first", so pin the opener for it. The real
+            // random picker was already exercised above.
+            var realPicker = AuthoritativeMatchEngine.OpeningPlayerPicker;
+            AuthoritativeMatchEngine.OpeningPlayerPicker = () => 0;
+
             var config = new ServerConfiguration { Port = Port, Environment = "Test" };
             var roomManager = new RoomManager();
             var server = new WebSocketServer(config, roomManager);
@@ -34,7 +42,7 @@ namespace PitStrikerServer.Tests
 
             try { await RunFlow(); }
             catch (Exception ex) { _failed++; Console.WriteLine($"  FAIL  unhandled exception\n{ex}"); }
-            finally { server.Stop(); }
+            finally { server.Stop(); AuthoritativeMatchEngine.OpeningPlayerPicker = realPicker; }
 
             Console.WriteLine($"\n=== {_passed} passed, {_failed} failed ===");
             return _failed == 0 ? 0 : 1;
@@ -165,6 +173,45 @@ namespace PitStrikerServer.Tests
             HitOpponent = false,
             ClientTimestamp = 0,
         };
+
+        private static void RunOpeningAndMatchOverChecks()
+        {
+            // The default picker must actually vary. Hard-coded 0 gave the room creator the first
+            // shot in every online match.
+            int zeros = 0, ones = 0;
+            for (int i = 0; i < 400; i++)
+            {
+                var r = new Room("OPEN" + i);
+                r.MatchEngine.StartMatch();
+                if (r.MatchEngine.ActivePlayerIndex == 0) zeros++; else ones++;
+            }
+            Check($"random opener reaches both players (P1 {zeros}, P2 {ones} of 400)", zeros > 100 && ones > 100);
+
+            var saved = AuthoritativeMatchEngine.OpeningPlayerPicker;
+            try
+            {
+                AuthoritativeMatchEngine.OpeningPlayerPicker = () => 1;
+                var pinned = new Room("OPENP2");
+                pinned.MatchEngine.StartMatch();
+                Check("StartMatch honours the opening player picker", pinned.MatchEngine.ActivePlayerIndex == 1);
+
+                // A decided match must stop advancing turns.
+                AuthoritativeMatchEngine.OpeningPlayerPicker = () => 0;
+                var over = new Room("OVER01");
+                over.MatchEngine.StartMatch();
+                over.MatchOver = true;
+                int turnBefore = over.MatchEngine.TurnId;
+                // One tick longer than a whole turn: an unguarded engine would expire the timer here.
+                over.MatchEngine.Tick(NetworkProtocol.DefaultTurnDuration + 1f);
+                Check("finished match does not pass turns on timer expiry",
+                      over.MatchEngine.TurnId == turnBefore && over.MatchEngine.ActivePlayerIndex == 0);
+
+                // ...and a rematch clears the flag so play resumes.
+                over.MatchEngine.StartMatch();
+                Check("rematch clears MatchOver", !over.MatchOver);
+            }
+            finally { AuthoritativeMatchEngine.OpeningPlayerPicker = saved; }
+        }
 
         private static void Check(string name, bool ok)
         {
