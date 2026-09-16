@@ -70,15 +70,6 @@ namespace PitStriker.UI
             return Fill(Mathf.Abs(d + 5f) - 5f);
         });
 
-        /// <summary>Up chevron stroke.</summary>
-        public static Sprite ChevronUp() => Get("chevU", 96, 56, (x, y) =>
-            Fill(Mathf.Min(SdSegment(x, y, new Vector2(12, 14), new Vector2(48, 44)),
-                           SdSegment(x, y, new Vector2(48, 44), new Vector2(84, 14))) - 6f));
-
-        /// <summary>Upward arrow head for the swipe shaft.</summary>
-        public static Sprite ArrowHead() => Get("arrowH", 64, 64, (x, y) =>
-            Fill(SdTriangle(x, y, new Vector2(8, 10), new Vector2(56, 10), new Vector2(32, 58))));
-
         public static Sprite Gear() => Get("gear", 128, 128, (x, y) =>
         {
             float dx = x - 64, dy = y - 64;
@@ -91,62 +82,6 @@ namespace PitStriker.UI
             float hole = 18f - r;
             return Fill(Mathf.Max(body, hole));
         });
-
-        /// <summary>Glowing orb for the swipe thumb: bright core, crisp rim, soft halo.</summary>
-        public static Sprite Orb() => Get("orb", 160, 160, (x, y) =>
-        {
-            float r = Len(x - 80, y - 80);
-            float disc = Fill(r - 46f);
-            float rim = Fill(Mathf.Abs(r - 44f) - 3f);
-            float halo = Mathf.Clamp01(1f - (r - 44f) / 34f);
-            halo = r > 44f ? halo * halo * 0.55f : 0f;
-            // Core brightens toward the upper-left for a little depth.
-            float shade = Mathf.Clamp01(1.1f - Len(x - 68, y - 94) / 60f);
-            return Mathf.Max(Mathf.Max(disc * (0.55f + 0.45f * shade), rim), halo);
-        });
-
-        /// <summary>
-        /// Pointing hand, index finger up, white with a darker outline. Returned in colour
-        /// (not for tinting): RGB carries the outline shading.
-        /// </summary>
-        public static Sprite Hand()
-        {
-            const string key = "hand";
-            if (Cache.TryGetValue(key, out var cached) && cached != null) return cached;
-            const int w = 128, h = 160;
-            var tex = NewTexture(w, h);
-            var px = new Color32[w * h];
-            for (int j = 0; j < h; j++)
-            for (int i = 0; i < w; i++)
-            {
-                float x = i + 0.5f, y = j + 0.5f;
-                float index = SdSegment(x, y, new Vector2(46, 150), new Vector2(46, 78)) - 13f;
-                float palm = SdRoundBox(x - 64, y - 52, 36, 38, 18);
-                float f2 = SdSegment(x, y, new Vector2(70, 92), new Vector2(70, 70)) - 12f;
-                float f3 = SdSegment(x, y, new Vector2(90, 86), new Vector2(90, 64)) - 11f;
-                float f4 = SdSegment(x, y, new Vector2(106, 76), new Vector2(106, 56)) - 10f;
-                float thumb = SdSegment(x, y, new Vector2(34, 60), new Vector2(18, 86)) - 11f;
-                float d = Mathf.Min(index, Mathf.Min(palm, Mathf.Min(f2, Mathf.Min(f3, Mathf.Min(f4, thumb)))));
-
-                // Inner crease lines between folded fingers, drawn as thin outline strokes.
-                float crease = Mathf.Min(Mathf.Abs(x - 58f) + Mathf.Max(0f, Mathf.Abs(y - 78f) - 10f),
-                               Mathf.Min(Mathf.Abs(x - 80f) + Mathf.Max(0f, Mathf.Abs(y - 74f) - 10f),
-                                         Mathf.Abs(x - 98f) + Mathf.Max(0f, Mathf.Abs(y - 66f) - 9f)));
-
-                float alpha = Fill(d);
-                float outline = 1f - Fill(d + 4f);   // 1 within 4 px of the edge, 0 deeper inside
-                float creaseLine = d < -3f ? Fill(crease - 1.5f) : 0f;
-                float dark = Mathf.Max(outline, creaseLine);
-                byte v = (byte)Mathf.RoundToInt(Mathf.Lerp(255f, 70f, dark));
-                px[j * w + i] = new Color32(v, v, (byte)Mathf.Min(255, v + 6), (byte)Mathf.RoundToInt(alpha * 255f));
-            }
-            tex.SetPixels32(px);
-            tex.Apply(false, true);
-            var s = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
-            s.name = key;
-            Cache[key] = s;
-            return s;
-        }
 
         public static Sprite White() => Get("white", 4, 4, (x, y) => 1f);
 

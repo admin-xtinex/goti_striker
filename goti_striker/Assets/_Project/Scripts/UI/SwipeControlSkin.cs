@@ -1,44 +1,34 @@
 using UnityEngine;
 using UnityEngine.UI;
+using PitStriker.Gameplay;
 using PitStriker.Input;
 using PitStriker.GameplayKit.UI;
 
 namespace PitStriker.UI
 {
     /// <summary>
-    /// Swipe-to-shoot presentation: up chevrons, an arrow shaft that fills with shot power, a
-    /// glowing thumb, a pointing hand and a "SWIPE / TO SHOOT" caption.
+    /// Swipe-to-shoot presentation built from the supplied artwork (Resources/UI/SwipeControl):
+    /// up chevrons, a glowing dial that follows the finger, down chevrons, a tapping hand hint and
+    /// the artwork's own captions ("Swipe up for lofted shot" / "Drag down, aim and release for
+    /// grounded shot"); during the toss a matching "Swipe up to toss" label replaces them.
     ///
-    /// Visual only. Everything is drawn inside the existing PowerArea rect, whose position and
-    /// size decide where a shot gesture may start - those are not touched. The thumb keeps its
-    /// RectTransform (ShotControlBinder moves it); only its artwork and size change. No graphic
-    /// here is a raycast target.
+    /// Visual only. Everything sits inside the existing PowerArea rect, whose position and size
+    /// decide where a shot gesture may start - those are not touched. The dial rides on the
+    /// binder's Thumb RectTransform, which ShotControlBinder already moves with the swipe; its
+    /// rect size is unchanged. No graphic here is a raycast target.
     /// </summary>
     public class SwipeControlSkin : MonoBehaviour
     {
-        static readonly Color Cyan = new Color(0.45f, 0.86f, 1f, 1f);
+        const string ArtPath = "UI/SwipeControl/";
+        static readonly Color Idle = new Color(1f, 1f, 1f, 0.55f);
 
         ShotControlBinder _binder;
-        Image _shaftFill, _hand;
-        Image[] _chevrons;
-        CanvasGroup _handGroup;
-        float _power;
         Vector2 _thumbHome;
-        Text _hintUp, _hintDown;
-
-        static Text Hint(RectTransform root, string name, string word, bool up, float y)
-        {
-            var row = HudArt.Rect(name, root);
-            HudArt.Place(row, new Vector2(0.5f, 0.5f), new Vector2(0f, y), new Vector2(150f, 32f));
-            var icon = HudArt.Image("Arrow", row, HudArt.ArrowHead(), new Color(0.55f, 0.90f, 1f, 1f));
-            HudArt.Place(icon.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(-46f, 0f), new Vector2(20f, 18f));
-            if (!up) icon.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 180f);
-            HudArt.Shadow(icon, 0.5f, 1.5f);
-            var text = HudArt.Text("Word", row, word, 28, Color.white, FontStyle.Bold, TextAnchor.MiddleLeft);
-            HudArt.Place(text.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(26f, 0f), new Vector2(96f, 32f));
-            HudArt.Shadow(text, 0.55f, 1.5f);
-            return text;
-        }
+        Image _up, _down, _dial, _upCaption, _downCaption;
+        Text _tossLabel;
+        CanvasGroup _handGroup;
+        RectTransform _hand;
+        float _power;
 
         public static void EnsureAll()
         {
@@ -56,6 +46,15 @@ namespace PitStriker.UI
         void OnEnable() => SwipeLaunchController.OnPowerChanged += HandlePower;
         void OnDisable() => SwipeLaunchController.OnPowerChanged -= HandlePower;
         void HandlePower(float p) => _power = Mathf.Clamp01(p);
+
+        static Sprite Art(string name)
+        {
+            var sprite = Resources.Load<Sprite>(ArtPath + name);
+            if (sprite != null) return sprite;
+            // Imported as a plain texture on some setups: wrap it.
+            var tex = Resources.Load<Texture2D>(ArtPath + name);
+            return tex != null ? Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f)) : null;
+        }
 
         void Build(RectTransform area)
         {
@@ -78,87 +77,114 @@ namespace PitStriker.UI
             root.pivot = new Vector2(0.5f, 0.5f);
             root.anchoredPosition = Vector2.zero;
             root.sizeDelta = area.rect.size;
-            root.SetAsFirstSibling();   // behind the thumb
+            root.SetAsFirstSibling();   // behind the dial
 
-            // Chevrons, stacked, pointing up.
-            _chevrons = new Image[2];
-            for (int i = 0; i < 2; i++)
-            {
-                _chevrons[i] = HudArt.Image("Chevron" + i, root, HudArt.ChevronUp(), new Color(Cyan.r, Cyan.g, Cyan.b, 0.9f));
-                HudArt.Place(_chevrons[i].rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 152f - i * 22f), new Vector2(44f, 26f));
-            }
+            // Vertical stack centred on the 356-unit-tall area: caption, chevrons, dial, chevrons,
+            // caption. Captions are wider than the area; they are not raycast targets.
+            _upCaption = HudArt.Image("CaptionUp", root, Art("TextUp"), Color.white);
+            HudArt.Place(_upCaption.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 190f), new Vector2(160f, 60f));
+            _upCaption.preserveAspect = true;
+            _tossLabel = Label(root, "TossLabel", "Swipe up to toss", 182f);
+            _up = HudArt.Image("ChevronsUp", root, Art("ChevronsUp"), Idle);
+            HudArt.Place(_up.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 110f), new Vector2(78f, 75f));
+            _up.preserveAspect = true;
 
-            // Shaft from the thumb up to an arrow head; a brighter copy fills upward with power.
-            var glow = HudArt.Image("ShaftGlow", root, HudArt.White(), new Color(Cyan.r, Cyan.g, Cyan.b, 0.25f));
-            HudArt.Place(glow.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 58f), new Vector2(11f, 104f));
-            var shaft = HudArt.Image("Shaft", root, HudArt.White(), new Color(0.85f, 0.95f, 1f, 0.9f));
-            HudArt.Place(shaft.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 58f), new Vector2(4f, 104f));
-            _shaftFill = HudArt.Image("ShaftPower", root, HudArt.White(), new Color(0.35f, 0.95f, 1f, 1f));
-            HudArt.Place(_shaftFill.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 58f), new Vector2(7f, 104f));
-            _shaftFill.type = Image.Type.Filled;
-            _shaftFill.fillMethod = Image.FillMethod.Vertical;
-            _shaftFill.fillOrigin = (int)Image.OriginVertical.Bottom;
-            _shaftFill.fillAmount = 0f;
-            var head = HudArt.Image("ArrowHead", root, HudArt.ArrowHead(), new Color(0.85f, 0.95f, 1f, 0.95f));
-            HudArt.Place(head.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 114f), new Vector2(22f, 20f));
+            _down = HudArt.Image("ChevronsDown", root, Art("ChevronsDown"), Idle);
+            HudArt.Place(_down.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -110f), new Vector2(78f, 66f));
+            _down.preserveAspect = true;
+            _downCaption = HudArt.Image("CaptionDown", root, Art("TextDown"), Color.white);
+            HudArt.Place(_downCaption.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -188f), new Vector2(250f, 58f));
+            _downCaption.preserveAspect = true;
 
-            // Hand under the thumb, fingertip on the thumb's centre.
-            var handRoot = HudArt.Rect("Hand", root);
-            HudArt.Place(handRoot, new Vector2(0.5f, 0.5f), new Vector2(14f, -52f), new Vector2(86f, 108f));
-            _handGroup = handRoot.gameObject.AddComponent<CanvasGroup>();
-            _handGroup.blocksRaycasts = false; _handGroup.interactable = false;
-            _hand = HudArt.Image("Art", handRoot, HudArt.Hand(), Color.white);
-            _hand.rectTransform.anchorMin = Vector2.zero; _hand.rectTransform.anchorMax = Vector2.one;
-            _hand.rectTransform.offsetMin = _hand.rectTransform.offsetMax = Vector2.zero;
-            HudArt.Shadow(_hand, 0.35f, 2f);
-
-            // Short hints: flick up = lob, pull down = roll. Only the words live here; which swipe
-            // makes which shot is decided by the shot controller.
-            _hintUp = Hint(root, "HintUp", "LOB", up: true, y: -130f);
-            _hintDown = Hint(root, "HintDown", "ROLL", up: false, y: -162f);
-
-            // New thumb artwork: a glowing orb. The rect is the binder's; it keeps moving it.
+            // Dial = the thumb artwork. The Thumb rect itself (size, clamping) stays the binder's.
             if (_binder.Thumb != null)
             {
-                _binder.Thumb.sizeDelta = new Vector2(56f, 56f);
                 _thumbHome = _binder.Thumb.anchoredPosition;
-                var halo = HudArt.Image("ThumbGlow", _binder.Thumb, HudArt.Glow(), new Color(0.35f, 0.85f, 1f, 0.65f));
-                HudArt.Place(halo.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(120f, 120f));
-                halo.transform.SetAsFirstSibling();
-                var orb = HudArt.Image("ThumbOrb", _binder.Thumb, HudArt.Orb(), new Color(0.80f, 0.95f, 1f, 1f));
-                HudArt.Place(orb.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(92f, 92f));
+                _dial = HudArt.Image("Dial", _binder.Thumb, Art("Dial"), Color.white);
+                HudArt.Place(_dial.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(132f, 132f));
                 _binder.Thumb.SetAsLastSibling();
             }
+
+            // Tapping hand, fingertip on the dial centre. Pivot = the tap point in HandTap.png.
+            // Parented to the area (same centre as the skin) so it can draw above the dial.
+            _hand = HudArt.Rect("Hand", area);
+            _hand.anchorMin = _hand.anchorMax = new Vector2(0.5f, 0.5f);
+            _hand.pivot = new Vector2(0.36f, 0.714f);
+            _hand.anchoredPosition = _thumbHome;
+            _hand.sizeDelta = new Vector2(92f, 110f);
+            _handGroup = _hand.gameObject.AddComponent<CanvasGroup>();
+            _handGroup.blocksRaycasts = false; _handGroup.interactable = false;
+            var handArt = HudArt.Image("Art", _hand, Art("HandTap"), Color.white);
+            handArt.rectTransform.anchorMin = Vector2.zero; handArt.rectTransform.anchorMax = Vector2.one;
+            handArt.rectTransform.offsetMin = handArt.rectTransform.offsetMax = Vector2.zero;
+            handArt.preserveAspect = true;
+            _hand.SetAsLastSibling();
+        }
+
+        static Text Label(RectTransform root, string name, string word, float y)
+        {
+            var t = HudArt.Text(name, root, word, 24, new Color(0.85f, 0.97f, 1f, 1f), FontStyle.Bold, TextAnchor.MiddleCenter);
+            HudArt.Place(t.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, y), new Vector2(220f, 32f));
+            var outline = t.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0.02f, 0.25f, 0.45f, 0.85f);
+            outline.effectDistance = new Vector2(1.5f, -1.5f);
+            HudArt.Shadow(t, 0.5f, 2f);
+            return t;
         }
 
         void Update()
         {
-            if (_shaftFill == null) return;
-            _shaftFill.fillAmount = Mathf.MoveTowards(_shaftFill.fillAmount, _power, Time.unscaledDeltaTime * 6f);
-
+            if (_up == null) return;
             float t = Time.unscaledTime;
-            for (int i = 0; i < _chevrons.Length; i++)
+
+            var tm = TurnManager.Instance;
+            bool toss = tm != null && tm.CurrentState == TurnManager.GameState.TossPhase;
+            bool online = TurnManager.IsOnlineMatch;
+
+            // Toss: one forward throw, so its own label. Online every shot rolls, so the lofted-shot
+            // caption would mislead there.
+            SetActive(_tossLabel, toss);
+            SetActive(_upCaption, !toss && !online);
+            SetActive(_down, !toss);
+            SetActive(_downCaption, !toss);
+
+            // Which way the finger is going, from the thumb the binder moves.
+            Vector2 offset = _binder.Thumb != null ? _binder.Thumb.anchoredPosition - _thumbHome : Vector2.zero;
+            bool dragging = offset.sqrMagnitude > 4f;
+            float upBias = dragging ? Mathf.Clamp01(offset.y / 40f) : 0f;
+            float downBias = dragging ? Mathf.Clamp01(-offset.y / 40f) : 0f;
+
+            // Idle: the chevrons breathe in turn. Swiping: the side you are heading lights up.
+            float idleUp = 0.55f + 0.25f * Mathf.Sin(t * 3f);
+            float idleDown = 0.55f + 0.25f * Mathf.Sin(t * 3f + Mathf.PI);
+            Fade(_up, dragging ? Mathf.Lerp(0.35f, 1f, upBias) : idleUp);
+            Fade(_down, dragging ? Mathf.Lerp(0.35f, 1f, downBias) : idleDown);
+            Fade(_upCaption, dragging ? Mathf.Lerp(0.45f, 1f, upBias) : 1f);
+            Fade(_downCaption, dragging ? Mathf.Lerp(0.45f, 1f, downBias) : 1f);
+            Fade(_tossLabel, dragging ? Mathf.Lerp(0.45f, 1f, upBias) : 1f);
+
+            if (_dial != null)
             {
-                float wave = 0.55f + 0.45f * Mathf.Sin(t * 3.2f - i * 1.1f);
-                _chevrons[i].color = new Color(Cyan.r, Cyan.g, Cyan.b, wave);
+                // A little bigger and brighter as power builds.
+                float s = 1f + 0.12f * _power + (dragging ? 0f : 0.03f * Mathf.Sin(t * 2.4f));
+                _dial.rectTransform.localScale = new Vector3(s, s, 1f);
             }
 
-            // Toss: one forward throw. Online every shot rolls, so the lob hint would mislead.
-            var tm = PitStriker.Gameplay.TurnManager.Instance;
-            bool toss = tm != null && tm.CurrentState == PitStriker.Gameplay.TurnManager.GameState.TossPhase;
-            bool online = PitStriker.Gameplay.TurnManager.IsOnlineMatch;
-            string upWord = toss ? "TOSS" : "LOB";
-            if (_hintUp.text != upWord) _hintUp.text = upWord;
-            bool showUp = toss || !online, showDown = !toss;
-            var upRow = _hintUp.transform.parent.gameObject;
-            var downRow = _hintDown.transform.parent.gameObject;
-            if (upRow.activeSelf != showUp) upRow.SetActive(showUp);
-            if (downRow.activeSelf != showDown) downRow.SetActive(showDown);
-
-            // The hand is a hint: out of the way while a finger is actually swiping.
-            bool dragging = _binder.Thumb != null && (_binder.Thumb.anchoredPosition - _thumbHome).sqrMagnitude > 4f;
+            // The hand is a hint: it taps while idle and gets out of the way during a swipe.
             _handGroup.alpha = Mathf.MoveTowards(_handGroup.alpha, dragging ? 0f : 1f, Time.unscaledDeltaTime * 6f);
-            _hand.rectTransform.anchoredPosition = new Vector2(0f, dragging ? 0f : 3f * Mathf.Sin(t * 2.4f));
+            float tap = Mathf.Abs(Mathf.Sin(t * 2.2f));
+            _hand.anchoredPosition = _thumbHome + new Vector2(4f, -4f) * tap;
+            _hand.localScale = Vector3.one * (1f - 0.05f * tap);
+        }
+
+        static void Fade(Graphic g, float alpha)
+        {
+            var c = g.color; c.a = alpha; g.color = c;
+        }
+
+        static void SetActive(Component c, bool on)
+        {
+            if (c.gameObject.activeSelf != on) c.gameObject.SetActive(on);
         }
     }
 }

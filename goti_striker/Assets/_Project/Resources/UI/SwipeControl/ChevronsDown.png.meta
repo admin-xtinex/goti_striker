@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: b0c76d2bd8fa4420b1740a169934dcb7
+TextureImporter:
+  serializedVersion: 13
+  mipmaps:
+    enableMipMap: 0
+  isReadable: 0
+  textureType: 8
+  spriteMode: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  wrapU: 1
+  wrapV: 1
+  filterMode: 1
+  spritePixelsToUnits: 100
+  spriteMeshType: 0
+  userData:
+  assetBundleName:
+  assetBundleVariant:
