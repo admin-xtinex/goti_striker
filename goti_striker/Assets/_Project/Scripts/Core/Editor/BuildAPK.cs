@@ -114,20 +114,20 @@ namespace PitStriker.EditorTools
             PlayerSettings.Android.bundleVersionCode = 1;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
-            // Release builds are ARM64-only: that is every real Android phone, and it keeps the
-            // APK small. Set GOTI_INCLUDE_X86=1 to also emit x86_64 for emulator testing.
+            // ARM64 only, and there is no alternative on this Unity version.
             //
-            // This matters more than it looks. An x86_64 emulator CAN install an arm64-only APK
-            // when the system image ships ARM translation, but every instruction is translated at
-            // runtime — a Unity IL2CPP game then crawls badly enough that even `adb shell pidof`
-            // times out, which makes a full match impossible to drive. A native x86_64 slice runs
-            // at normal speed instead.
-            bool includeX86 = System.Environment.GetEnvironmentVariable("GOTI_INCLUDE_X86") == "1";
-            PlayerSettings.Android.targetArchitectures = includeX86
-                ? (AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64)
-                : AndroidArchitecture.ARM64;
-            Debug.Log($"<color=#00FFAA><b>[BUILD APK]</b> Target architectures: "
-                    + $"{PlayerSettings.Android.targetArchitectures}</color>");
+            // Do not try to add x86_64 for emulator testing: Unity 6000.6 has removed Android
+            // x86_64 support. Setting it compiles with CS0618 ("X86_64 is no longer supported"),
+            // the build then logs "Target architecture x86_64 is no longer supported and has been
+            // removed", and the APK ships arm64-v8a only — so the attempt looks like it worked
+            // right up until you inspect lib/ inside the APK.
+            //
+            // Consequence for testing: an x86_64 emulator can still INSTALL this APK when its
+            // system image has ARM translation (ro.enable.native.bridge.exec=1), but every
+            // instruction is translated at runtime and a Unity IL2CPP game becomes unusably slow —
+            // slow enough that even "adb shell pidof" times out. Test on a real device, or use a
+            // desktop standalone build as the second client.
+            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
