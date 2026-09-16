@@ -208,6 +208,7 @@ namespace PitStriker.UI
         private void Start()
         {
             HideLegacyStrikeIfShotControlPresent();
+            GameHudSkin.Ensure(this);   // presentation layer for this HUD (visual only)
             UpdateObjectiveUI();
             HandlePowerChanged(0f);
             HandleStrokeCountChanged(0, 8);

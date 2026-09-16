@@ -134,7 +134,7 @@ _rulesModal = Page("HowToPlay");
             var rules = ActionButton("Btn_PauseRules", _pauseModal.transform, "How to play", 0, -82, 450, 64, Card);
             rules.onClick.AddListener(OpenRules);
             _pauseHomeButton = ActionButton("Btn_HomeMenu", _pauseModal.transform, "Main menu", 0, -162, 450, 64, Card);
-            _hudPauseButton = ActionButton("Btn_HUD_Pause", _safeFrame, "II  PAUSE", 434, 274, 180, 64, Ink);
+            _hudPauseButton = BuildHudTopRightButtons();
 
             _confirmation = Page("ConfirmAction");
             _confirmation.GetComponent<Image>().color = new Color(.025f,.07f,.07f,1);
@@ -195,6 +195,62 @@ _rulesModal = Page("HowToPlay");
             _splashPanel.transform.SetAsLastSibling();
 
             FitSafeArea();
+        }
+
+        /// <summary>
+        /// In-game top-right controls: a PAUSE pill with an icon and a round settings button.
+        /// Anchored to the screen corner inside the safe area (not the centred menu frame). The
+        /// pill is the same pause button as before - MenuManager wires and shows it as ever - and
+        /// the gear, a child so it shows and hides with it, opens Settings from the pause menu so
+        /// "Back" returns there. Units: this canvas's 1280x720 reference.
+        /// </summary>
+        private Button BuildHudTopRightButtons()
+        {
+            var corner = HudArt.Rect("HUD_TopRight", transform);
+            corner.anchorMin = Vector2.zero; corner.anchorMax = Vector2.one;
+            corner.offsetMin = corner.offsetMax = Vector2.zero;
+            corner.gameObject.AddComponent<SafeAreaFitter>();
+
+            var pillBorder = new Color(.55f, .76f, .96f, .95f);
+            var pill = HudArt.Image("Btn_HUD_Pause", corner, HudArt.RoundedRect(24), new Color(.05f, .10f, .20f, .88f), sliced: true);
+            pill.raycastTarget = true;
+            HudArt.Place(pill.rectTransform, new Vector2(1f, 1f), new Vector2(-164f, -52f), new Vector2(146f, 54f));
+            var pillGlow = HudArt.Image("Glow", pill.transform, HudArt.RoundedRect(24), new Color(.35f, .65f, 1f, .18f), sliced: true);
+            pillGlow.rectTransform.anchorMin = Vector2.zero; pillGlow.rectTransform.anchorMax = Vector2.one;
+            pillGlow.rectTransform.offsetMin = new Vector2(-4f, -4f); pillGlow.rectTransform.offsetMax = new Vector2(4f, 4f);
+            pillGlow.transform.SetAsFirstSibling();
+            var outline = HudArt.Image("Outline", pill.transform, HudArt.RoundedRect(24, 2.5f), pillBorder, sliced: true);
+            outline.rectTransform.anchorMin = Vector2.zero; outline.rectTransform.anchorMax = Vector2.one;
+            outline.rectTransform.offsetMin = outline.rectTransform.offsetMax = Vector2.zero;
+
+            var iconRing = HudArt.Image("IconRing", pill.transform, HudArt.Ring(7f), new Color(.75f, .87f, 1f, .9f));
+            HudArt.Place(iconRing.rectTransform, new Vector2(0f, .5f), new Vector2(27f, 0f), new Vector2(36f, 36f));
+            var iconFill = HudArt.Image("IconFill", pill.transform, HudArt.Circle(), new Color(.12f, .20f, .34f, 1f));
+            HudArt.Place(iconFill.rectTransform, new Vector2(0f, .5f), new Vector2(27f, 0f), new Vector2(31f, 31f));
+            var bars = HudArt.Image("IconBars", pill.transform, HudArt.PauseIcon(), Color.white);
+            HudArt.Place(bars.rectTransform, new Vector2(0f, .5f), new Vector2(27f, 0f), new Vector2(24f, 24f));
+            var label = HudArt.Text("Label", pill.transform, "PAUSE", 21, Color.white, FontStyle.Bold, TextAnchor.MiddleLeft);
+            HudArt.Place(label.rectTransform, new Vector2(0f, .5f), new Vector2(96f, 0f), new Vector2(92f, 40f));
+            HudArt.Shadow(label, .35f, 1.5f);
+
+            var pause = pill.gameObject.AddComponent<Button>();
+            pause.targetGraphic = pill;
+            var nav = pause.navigation; nav.mode = Navigation.Mode.None; pause.navigation = nav;
+
+            // Settings, 24 units right of the pill, 20 from the screen edge.
+            var gear = HudArt.Image("Btn_HUD_Settings", pill.transform, HudArt.Circle(), new Color(.15f, .24f, .37f, .92f));
+            gear.raycastTarget = true;
+            HudArt.Place(gear.rectTransform, new Vector2(.5f, .5f), new Vector2(119f, 0f), new Vector2(50f, 50f));
+            var gearRing = HudArt.Image("Ring", gear.transform, HudArt.Ring(5f), new Color(.60f, .76f, .95f, .75f));
+            HudArt.Place(gearRing.rectTransform, new Vector2(.5f, .5f), Vector2.zero, new Vector2(50f, 50f));
+            var gearIcon = HudArt.Image("Icon", gear.transform, HudArt.Gear(), Color.white);
+            HudArt.Place(gearIcon.rectTransform, new Vector2(.5f, .5f), Vector2.zero, new Vector2(30f, 30f));
+            var settings = gear.gameObject.AddComponent<Button>();
+            settings.targetGraphic = gear;
+            var gnav = settings.navigation; gnav.mode = Navigation.Mode.None; settings.navigation = gnav;
+            settings.onClick.AddListener(() => { HandlePauseClicked(); OpenSettings(); });
+
+            return pause;
         }
 
         private GameObject Page(string name)
