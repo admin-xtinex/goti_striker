@@ -8,9 +8,9 @@ namespace PitStriker.UI
 {
     /// <summary>
     /// Swipe-to-shoot presentation built from the supplied artwork (Resources/UI/SwipeControl):
-    /// up chevrons, a glowing dial that follows the finger, down chevrons, a tapping hand hint and
-    /// the artwork's own captions ("Swipe up for lofted shot" / "Drag down, aim and release for
-    /// grounded shot"); during the toss a matching "Swipe up to toss" label replaces them.
+    /// up chevrons, a glowing dial that follows the finger, down chevrons and a tapping hand hint,
+    /// with text captions in the HUD's font ("Swipe up for lofted shot" / "Drag down, aim and
+    /// release for grounded shot"); during the toss "Swipe up to toss" replaces them.
     ///
     /// Visual only. Everything sits inside the existing PowerArea rect, whose position and size
     /// decide where a shot gesture may start - those are not touched. The dial rides on the
@@ -20,12 +20,13 @@ namespace PitStriker.UI
     public class SwipeControlSkin : MonoBehaviour
     {
         const string ArtPath = "UI/SwipeControl/";
+        const string NewLine = "\n";
         static readonly Color Idle = new Color(1f, 1f, 1f, 0.55f);
 
         ShotControlBinder _binder;
         Vector2 _thumbHome;
-        Image _up, _down, _dial, _upCaption, _downCaption;
-        Text _tossLabel;
+        Image _up, _down, _dial;
+        Text _upCaption, _downCaption, _tossLabel;
         CanvasGroup _handGroup;
         RectTransform _hand;
         float _power;
@@ -81,10 +82,8 @@ namespace PitStriker.UI
 
             // Vertical stack centred on the 356-unit-tall area: caption, chevrons, dial, chevrons,
             // caption. Captions are wider than the area; they are not raycast targets.
-            _upCaption = HudArt.Image("CaptionUp", root, Art("TextUp"), Color.white);
-            HudArt.Place(_upCaption.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 190f), new Vector2(160f, 60f));
-            _upCaption.preserveAspect = true;
-            _tossLabel = Label(root, "TossLabel", "Swipe up to toss", 182f);
+            _upCaption = Label(root, "CaptionUp", "Swipe up for" + NewLine + "lofted shot", 192f);
+            _tossLabel = Label(root, "TossLabel", "Swipe up" + NewLine + "to toss", 192f);
             _up = HudArt.Image("ChevronsUp", root, Art("ChevronsUp"), Idle);
             HudArt.Place(_up.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 110f), new Vector2(78f, 75f));
             _up.preserveAspect = true;
@@ -92,9 +91,7 @@ namespace PitStriker.UI
             _down = HudArt.Image("ChevronsDown", root, Art("ChevronsDown"), Idle);
             HudArt.Place(_down.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -110f), new Vector2(78f, 66f));
             _down.preserveAspect = true;
-            _downCaption = HudArt.Image("CaptionDown", root, Art("TextDown"), Color.white);
-            HudArt.Place(_downCaption.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -188f), new Vector2(250f, 58f));
-            _downCaption.preserveAspect = true;
+            _downCaption = Label(root, "CaptionDown", "Drag down, aim and" + NewLine + "release for grounded shot", -192f);
 
             // Dial = the thumb artwork. The Thumb rect itself (size, clamping) stays the binder's.
             if (_binder.Thumb != null)
@@ -123,8 +120,9 @@ namespace PitStriker.UI
 
         static Text Label(RectTransform root, string name, string word, float y)
         {
-            var t = HudArt.Text(name, root, word, 24, new Color(0.85f, 0.97f, 1f, 1f), FontStyle.Bold, TextAnchor.MiddleCenter);
-            HudArt.Place(t.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, y), new Vector2(220f, 32f));
+            var t = HudArt.Text(name, root, word, 22, Color.white, FontStyle.Bold, TextAnchor.MiddleCenter);
+            t.lineSpacing = 0.95f;
+            HudArt.Place(t.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, y), new Vector2(280f, 56f));
             var outline = t.gameObject.AddComponent<Outline>();
             outline.effectColor = new Color(0.02f, 0.25f, 0.45f, 0.85f);
             outline.effectDistance = new Vector2(1.5f, -1.5f);
