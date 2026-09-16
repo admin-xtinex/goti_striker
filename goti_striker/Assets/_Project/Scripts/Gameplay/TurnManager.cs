@@ -1590,21 +1590,83 @@ namespace PitStriker.Gameplay
         {
             if (marble == null) return;
 
-            Vector3 nextTeePos;
-            if (nextPit == 2)
-            {
-                nextTeePos = GetTeeWorldAfterPit(1);
-            }
-            else if (nextPit == 3)
-            {
-                nextTeePos = GetTeeWorldAfterPit(2);
-            }
-            else
-            {
-                nextTeePos = GetStartCenterWorld();
-            }
+            // A conquered pit puts the marble down right beside that pit; otherwise the start line.
+            Vector3 nextTeePos = nextPit == 2 || nextPit == 3
+                ? GetPlacementBesidePit(nextPit - 1, marble)
+                : GetStartCenterWorld();
 
             marble.ResetPosition(nextTeePos);
+        }
+
+        /// <summary>
+        /// Where a marble that has just sunk <paramref name="pit"/> is set down: just past the pit
+        /// along the course, clear of its rim. If another marble is already there, one marble-width
+        /// to the left, then to the right. If all three are taken (rare), the nearest free spot on
+        /// widening rings around the pit, front half first. A spot is free when it is on the course,
+        /// outside every pit, and not touching another marble. Falls back to the first choice.
+        /// </summary>
+        public Vector3 GetPlacementBesidePit(int pit, MarbleController marble)
+        {
+            Vector3 pitPos = GetPitPosition(pit);
+            Vector3 ahead = pit < 3 ? GetPitPosition(pit + 1) - pitPos : pitPos - GetPitPosition(2);
+            ahead.y = 0f;
+            ahead = ahead.sqrMagnitude > 0.0001f ? ahead.normalized : Vector3.forward;
+            Vector3 right = Vector3.Cross(Vector3.up, ahead);
+
+            PitZone[] pits = FindObjectsByType<PitZone>(FindObjectsInactive.Exclude);
+            MarbleController[] marbles = FindObjectsByType<MarbleController>(FindObjectsInactive.Exclude);
+
+            float radius = marble != null ? marble.WorldRadius : 0.16f;
+            float rim = 0.52f;
+            foreach (var pz in pits) if (pz.PitNumber == pit) { rim = pz.RimRadius; break; }
+
+            float groundY = GetTeeWorldAfterPit(1).y;         // resting height used for tees
+            float near = rim + radius + 0.12f;                 // just clear of the rim
+            float step = radius * 2f + 0.12f;                  // one marble plus a small gap
+
+            Vector3 Flat(Vector3 p) => new Vector3(p.x, groundY, p.z);
+            Vector3 first = Flat(pitPos + ahead * near);
+
+            bool IsFree(Vector3 p)
+            {
+                if (!MarbleController.IsOnCourse(p, radius)) return false;
+                foreach (var pz in pits)
+                {
+                    Vector3 d = pz.transform.position - p; d.y = 0f;
+                    if (d.magnitude < pz.RimRadius + radius + 0.1f) return false;
+                }
+                foreach (var m in marbles)
+                {
+                    if (m == null || m == marble) continue;
+                    Vector3 d = m.transform.position - p; d.y = 0f;
+                    if (d.magnitude < radius + m.WorldRadius + 0.08f) return false;
+                }
+                return true;
+            }
+
+            if (IsFree(first)) return first;
+            Vector3 left = first - right * step;
+            if (IsFree(left)) return left;
+            Vector3 rightSpot = first + right * step;
+            if (IsFree(rightSpot)) return rightSpot;
+
+            for (int ring = 0; ring < 5; ring++)
+            {
+                float r = near + (ring + 1) * step;
+                int count = Mathf.Max(8, Mathf.CeilToInt(2f * Mathf.PI * r / step));
+                float slice = 360f / count;
+                // 0, +1, -1, +2, -2 ... slices from straight ahead, so the front half is tried first.
+                for (int k = 0; k <= count / 2; k++)
+                {
+                    foreach (int sign in k == 0 ? new[] { 1 } : new[] { -1, 1 })
+                    {
+                        Vector3 dir = Quaternion.AngleAxis(sign * k * slice, Vector3.up) * ahead;
+                        Vector3 p = Flat(pitPos + dir * r);
+                        if (IsFree(p)) return p;
+                    }
+                }
+            }
+            return first;
         }
 
         /// <summary>

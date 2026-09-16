@@ -23,6 +23,8 @@ namespace PitStriker.Gameplay
 
         [SerializeField, Min(0.1f)] private float _sizeScale = 1f;
         public int PitNumber => _pitNumber;
+        /// <summary>Radius of the pit's saucer rim in world units (the capture test uses the same edge).</summary>
+        public float RimRadius => .52f * _sizeScale;
         public bool IsSunk { get; private set; }
 
         private MarbleController _capturedMarble = null;

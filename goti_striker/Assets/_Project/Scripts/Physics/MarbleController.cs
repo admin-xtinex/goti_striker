@@ -179,8 +179,7 @@ namespace PitStriker.Physics
             Vector3 vel = _rigidbody.linearVelocity;
             bool boundaryHit = false;
 
-            float t = Mathf.Clamp01((pos.z - (-8.5f)) / 46.5f);
-            float currentMaxX = Mathf.Lerp(5.15f, 6.65f, t);
+            float currentMaxX = CourseHalfWidthAt(pos.z);
             float currentMinX = -currentMaxX;
 
             if (pos.x < currentMinX)
@@ -196,8 +195,8 @@ namespace PitStriker.Physics
                 boundaryHit = true;
             }
 
-            const float minZ = -8.5f;
-            const float maxZ = 37.5f;
+            const float minZ = CourseMinZ;
+            const float maxZ = CourseMaxZ;
             if (pos.z < minZ)
             {
                 pos.z = minZ;
@@ -307,6 +306,18 @@ namespace PitStriker.Physics
         /// <summary>
         /// Resets the marble position and halts all physics motion immediately.
         /// </summary>
+        // Course walls enforced in FixedUpdate, shared so placement code agrees with them.
+        public const float CourseMinZ = -8.5f;
+        public const float CourseMaxZ = 37.5f;
+
+        /// <summary>Half-width of the course at <paramref name="z"/> (5.15 m at the start, 6.65 m at the far end).</summary>
+        public static float CourseHalfWidthAt(float z) => Mathf.Lerp(5.15f, 6.65f, Mathf.Clamp01((z - CourseMinZ) / 46.5f));
+
+        /// <summary>True if a marble of <paramref name="radius"/> centred at <paramref name="p"/> is inside the walls.</summary>
+        public static bool IsOnCourse(Vector3 p, float radius) =>
+            p.z >= CourseMinZ + radius && p.z <= CourseMaxZ - radius &&
+            Mathf.Abs(p.x) <= CourseHalfWidthAt(p.z) - radius;
+
         public void ResetPosition(Vector3 newPosition)
         {
             if (_rigidbody != null)

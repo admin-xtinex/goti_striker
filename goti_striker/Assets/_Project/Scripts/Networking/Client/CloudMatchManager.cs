@@ -691,8 +691,9 @@ namespace PitStriker.Networking.Client
                         {
                             pitConquered = targetPit;
                             localMarble.Halt();
-                            // Pit 3 finishes the course; the marble stays where it was sunk.
-                            if (targetPit < 3 && tm != null) tm.RelocateToNextTee(localMarble, targetPit + 1);
+                            // Set down right beside the pit it sank, as offline does (pit 3 too:
+                            // the match ends there, so nothing is left in the pit).
+                            if (tm != null) localMarble.ResetPosition(tm.GetPlacementBesidePit(targetPit, localMarble));
                         }
                         else
                         {
