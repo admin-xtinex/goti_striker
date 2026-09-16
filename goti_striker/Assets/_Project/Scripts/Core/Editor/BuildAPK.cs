@@ -114,7 +114,13 @@ namespace PitStriker.EditorTools
             PlayerSettings.Android.bundleVersionCode = 1;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
-            // ARM64 only, and there is no alternative on this Unity version.
+            // ARM64 + ARMv7, for budget phones.
+            //
+            // Many low-end phones - Android Go editions and most 2 GB-RAM models - run a 32-bit
+            // Android even on a 64-bit chip. An arm64-only APK refuses to install on them with
+            // INSTALL_FAILED_NO_MATCHING_ABIS, whatever the Android version. The ARMv7 slice fixes
+            // that. It makes this single sideload APK larger; publish to Play as an App Bundle
+            // and each phone downloads only the slice it needs.
             //
             // Do not try to add x86_64 for emulator testing: Unity 6000.6 has removed Android
             // x86_64 support. Setting it compiles with CS0618 ("X86_64 is no longer supported"),
@@ -127,7 +133,9 @@ namespace PitStriker.EditorTools
             // instruction is translated at runtime and a Unity IL2CPP game becomes unusably slow —
             // slow enough that even "adb shell pidof" times out. Test on a real device, or use a
             // desktop standalone build as the second client.
-            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
+            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64 | AndroidArchitecture.ARMv7;
+            Debug.Log($"<color=#00FFAA><b>[BUILD APK]</b> Target architectures: "
+                    + $"{PlayerSettings.Android.targetArchitectures}</color>");
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
