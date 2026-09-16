@@ -25,7 +25,7 @@ namespace PitStriker.Networking.Shared
         // The striking client's Unity physics decides the actual shot.
         public const float MinAllowedForce = 0.5f;
         public const float MaxAllowedForce = 45.0f;
-        // Must cover the loft arc offline play can produce (ShotModeConfig.LoftMaxAngle = 0.55).
+        // Must cover the loft arc: sin(ShotModeConfig.LoftLaunchAngle 35 deg) = 0.574 (+0.01 clamp slack).
         public const float MaxAllowedPitch = 0.60f;
 
         // Server waits this long for the striking client's ShotResult before abandoning the turn.

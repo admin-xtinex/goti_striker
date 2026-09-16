@@ -340,17 +340,12 @@ namespace PitStriker.Input
                 ShotMode mode = _gestureShotMode;
                 if (cfg != null && mode == ShotMode.Loft && !cfg.AllowLoftShot) mode = ShotMode.Ground;
 
-                // The authoritative server simulates on a flat plane: it clamps pitch to
-                // NetworkProtocol.MaxAllowedPitch and then builds velocity with y = 0, so a
-                // lofted arc predicted here would be snapped back on the next snapshot.
-                // Keep online shots on the ground so prediction and authority agree.
+                // Online lofts are played exactly like offline ones. The server does not simulate
+                // shots (protocol v2+): this phone's physics decides the outcome, the opponent
+                // replays the same impulse and both snap to the accepted positions. The server only
+                // checks the input is structurally sane (pitch <= NetworkProtocol.MaxAllowedPitch).
                 bool onlineMatch = PitStriker.Networking.Client.CloudMatchManager.Instance != null
                                    && PitStriker.Networking.Client.CloudMatchManager.Instance.IsOnlineMatchActive;
-                if (onlineMatch && mode == ShotMode.Loft)
-                {
-                    mode = ShotMode.Ground;
-                    if (cfg != null) cfg.TrySetMode(ShotMode.Ground);
-                }
                 if (openingToss)
                 {
                     pitch = 0.08f;
@@ -358,8 +353,9 @@ namespace PitStriker.Input
                 }
                 else if (mode == ShotMode.Loft && (cfg == null || cfg.AllowLoftShot))
                 {
-                    pitch = cfg != null ? cfg.GetLoftPitch(power) : 0.35f;
-                    maxPitch = cfg != null ? cfg.LoftMaxAngle : 0.55f;
+                    // Fixed elevation: power sets how far the lob goes, not whether it leaves the ground.
+                    pitch = cfg != null ? cfg.LoftPitch : Mathf.Tan(35f * Mathf.Deg2Rad);
+                    maxPitch = cfg != null ? cfg.LoftMaxPitch : 0.58f;
                 }
                 else
                 {
@@ -370,6 +366,9 @@ namespace PitStriker.Input
 
                 Vector3 launchDir = (dir + Vector3.up * pitch).normalized;
                 float force = power * _maxLaunchForce * GameDifficulty.LaunchForceMultiplier;
+                // A lob needs some speed to arc at all; below this a short swipe up only skimmed.
+                if (!openingToss && mode == ShotMode.Loft && cfg != null)
+                    force = Mathf.Max(force, cfg.LoftMinLaunchSpeed);
                 _marble.Halt();
                 _marble.ApplyImpulse(launchDir, force, maxPitch);
 

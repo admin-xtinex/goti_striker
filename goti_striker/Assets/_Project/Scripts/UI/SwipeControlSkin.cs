@@ -137,12 +137,10 @@ namespace PitStriker.UI
 
             var tm = TurnManager.Instance;
             bool toss = tm != null && tm.CurrentState == TurnManager.GameState.TossPhase;
-            bool online = TurnManager.IsOnlineMatch;
 
-            // Toss: one forward throw, so its own label. Online every shot rolls, so the lofted-shot
-            // caption would mislead there.
+            // Toss: one forward throw, so its own label. Lofts work online too, so no online case.
             SetActive(_tossLabel, toss);
-            SetActive(_upCaption, !toss && !online);
+            SetActive(_upCaption, !toss);
             SetActive(_down, !toss);
             SetActive(_downCaption, !toss);
 

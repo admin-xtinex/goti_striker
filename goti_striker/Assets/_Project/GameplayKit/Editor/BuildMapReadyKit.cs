@@ -190,9 +190,6 @@ namespace PitStriker.GameplayKit.EditorTools
                 root.Audio = gameplay.Find("Audio");
                 root.Origin = kit.GetComponentInChildren<GameplayOrigin>(true);
                 root.ShotConfig = kit.GetComponentInChildren<ShotModeConfig>(true);
-                // keep the tuned loft arc across rebuilds
-                if (root.ShotConfig != null)
-                    root.ShotConfig.LoftVerticalForce = SetLoftStrength.LoftVerticalForce;
                 var ui = kit.GetComponentInChildren<PitStriker.GameplayKit.UI.ShotControlBinder>(true);
                 if (ui != null) root.ShotControlUI = ui.transform;
             }

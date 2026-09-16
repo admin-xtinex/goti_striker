@@ -211,10 +211,13 @@ namespace PitStriker.Physics
                 boundaryHit = true;
             }
 
-            // Altitude ceiling clamp to prevent vaulting over walls
-            if (pos.y > 1.8f)
+            // Altitude ceiling. The side and end clamps above already keep marbles on the course, so
+            // this only stops a runaway launch. It was 1.8 m, which cut every lofted shot off at the
+            // top and dropped it flat - the loft looked like it never rose. 6.5 m clears the tuned
+            // arc (~6 m peak at full power) with a little room.
+            if (pos.y > 6.5f)
             {
-                pos.y = 1.8f;
+                pos.y = 6.5f;
                 if (vel.y > 0f) vel.y = -1.0f;
                 boundaryHit = true;
             }
