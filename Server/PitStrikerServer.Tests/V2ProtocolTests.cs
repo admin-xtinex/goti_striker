@@ -250,7 +250,81 @@ namespace PitStrikerServer.Tests
             finally { AuthoritativeMatchEngine.OpeningPlayerPicker = saved; }
 
             RunTossEdgeChecks();
+            RunPitProgressChecks();
             RunPruneChecks();
+        }
+
+        /// <summary>
+        /// Pit progress is server-derived. Written after a live match where players "conquered
+        /// pit 1" repeatedly and no online match could ever finish.
+        /// </summary>
+        private static void RunPitProgressChecks()
+        {
+            var saved = AuthoritativeMatchEngine.OpeningPlayerPicker;
+            try
+            {
+                AuthoritativeMatchEngine.OpeningPlayerPicker = () => 0;
+
+                // Plays the toss so player 0 wins it, leaving the engine on player 0's first turn.
+                static AuthoritativeMatchEngine PastToss(string code)
+                {
+                    var e = new Room(code).MatchEngine;
+                    e.StartMatch();
+                    for (int p = 0; p < 2; p++)
+                    {
+                        var t = MakeToss(e.TurnId, p);
+                        e.SubmitShotInput(p, ref t, out int tid, out _);
+                        e.SubmitShotResult(p, MakeTossResult(e.TurnId, tid, p, p == 0 ? 30f : 20f), out _);
+                    }
+                    return e;
+                }
+
+                // One shot by `player` whose client reports landing in `landedPit` but, like the
+                // live clients, never advances its own reported pit.
+                static bool Shoot(AuthoritativeMatchEngine e, int player, int landedPit, int strokesAfter, out string why)
+                {
+                    var input = MakeInput(e.TurnId, player);
+                    e.SubmitShotInput(player, ref input, out int id, out _);
+                    var r = MakeResult(e.TurnId, id, player);
+                    r.PitConqueredNumber = landedPit;
+                    r.StrokesAfter = strokesAfter;
+                    r.CurrentPitAfter = 1;
+                    return e.SubmitShotResult(player, r, out why);
+                }
+
+                var e1 = PastToss("PIT001");
+                Shoot(e1, 0, 1, 1, out _);
+                Check("conquering the target pit advances it on the server, whatever the client reports",
+                      e1.Players[0].CurrentPit == 2);
+                Check("a capture still earns the extra play", e1.ActivePlayerIndex == 0);
+
+                Shoot(e1, 0, 1, 2, out _);
+                Check("landing in an already-conquered pit is not a second capture",
+                      e1.Players[0].CurrentPit == 2);
+
+                var e2 = PastToss("PIT002");
+                bool accepted = Shoot(e2, 0, 2, 1, out string why2);
+                Check("landing in the wrong pit is accepted as a normal shot, not rejected",
+                      accepted && e2.Players[0].CurrentPit == 1 && e2.PendingShotId < 0 && e2.ActivePlayerIndex == 1);
+
+                var e3 = PastToss("PIT003");
+                Shoot(e3, 0, 1, 1, out _);   // pit 1, extra play
+                Shoot(e3, 0, 2, 2, out _);   // pit 2, extra play
+                Shoot(e3, 0, 3, 3, out _);   // pit 3
+                Check("conquering pit 3 finishes the match for that player",
+                      e3.Phase == CloudMatchPhase.MatchCompleted && e3.WinnerPlayerIndex == 0);
+
+                // A structurally broken result from the real striker must not hold the match.
+                var e4 = PastToss("PIT004");
+                var bad = MakeInput(e4.TurnId, 0);
+                e4.SubmitShotInput(0, ref bad, out int badId, out _);
+                var broken = MakeResult(e4.TurnId, badId, 0);
+                broken.StrokesAfter = 99;
+                bool badAccepted = e4.SubmitShotResult(0, broken, out _);
+                Check("an unusable result from the striker is abandoned at once, not after 20 s",
+                      !badAccepted && e4.PendingShotId < 0 && e4.Phase == CloudMatchPhase.ReadyToAim && e4.ActivePlayerIndex == 1);
+            }
+            finally { AuthoritativeMatchEngine.OpeningPlayerPicker = saved; }
         }
 
         /// <summary>Toss cases a scripted two-client flow does not reach: players who never throw.</summary>

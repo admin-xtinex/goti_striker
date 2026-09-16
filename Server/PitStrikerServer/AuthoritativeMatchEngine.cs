@@ -226,7 +226,21 @@ namespace PitStrikerServer
                 return true;
             }
 
-            if (!ResultIsStructurallySane(result, playerIndex, out reason)) return false;
+            if (!ResultIsStructurallySane(result, playerIndex, out reason))
+            {
+                // This is the genuine striker's result for the pending shot, so no better one is
+                // coming. Abandon it now instead of holding the match for the 20 s result timeout.
+                string refused = reason;
+                Console.WriteLine($"[ROOM {Room.RoomCode}] Shot {PendingShotId} from P{playerIndex + 1} "
+                                + $"abandoned immediately: {refused}");
+                PendingShotId = -1;
+                PendingShotPlayer = -1;
+                _pendingShotElapsed = 0f;
+                PassTurn();
+                Room.MarkAcceptedStateDirty();
+                reason = refused;
+                return false;
+            }
 
             ApplyAcceptedResult(playerIndex, result);
             LastAppliedShotId = PendingShotId;
@@ -257,28 +271,11 @@ namespace PitStrikerServer
                 return false;
             }
 
-            // Pit progression may only stay put or advance by one, and never past 3.
-            int pitBefore = Players[playerIndex].CurrentPit;
-            if (r.CurrentPitAfter < pitBefore || r.CurrentPitAfter > pitBefore + 1 || r.CurrentPitAfter > 4)
-            {
-                reason = $"pit progression implausible ({pitBefore} -> {r.CurrentPitAfter})";
-                return false;
-            }
-
-            // A claimed pit conquest must be the pit the player was actually aiming at.
-            if (r.PitConqueredNumber != 0 && r.PitConqueredNumber != pitBefore)
-            {
-                reason = $"claimed pit {r.PitConqueredNumber} but target was {pitBefore}";
-                return false;
-            }
-
-            // Finishing is only possible by conquering pit 3.
-            if (r.PlayerFinished && !(r.PitConqueredNumber == 3 || pitBefore == 3))
-            {
-                reason = "claimed finish without conquering pit 3";
-                return false;
-            }
-
+            // Pit progression, pit claims and finishing are NOT validated here any more: the
+            // server derives them itself in ApplyAcceptedResult. Rejecting a whole shot because
+            // its pit claim was off cost the striker the shot and stalled the match 20 s on the
+            // abandon timeout - and the claim was usually the client's honest report of which
+            // pit the marble happened to land in.
             return MarblesAreSane(r, out reason);
         }
 
@@ -396,12 +393,40 @@ namespace PitStrikerServer
             }
 
             Players[playerIndex].TotalStrokes = r.StrokesAfter;
-            Players[playerIndex].CurrentPit = r.CurrentPitAfter;
 
-            if (r.PitConqueredNumber != 0)
-                Console.WriteLine($"[ROOM {Room.RoomCode}] P{playerIndex + 1} conquered pit {r.PitConqueredNumber}");
+            // Pit progress is decided here, not taken from the client.
+            //
+            // Clients used to report CurrentPitAfter themselves, and the server stored it. Online
+            // clients never advance their own target (the offline outcome routine that does it is
+            // skipped online, since the server owns turn outcome), so a conquered pit left the
+            // target unchanged: players "conquered pit 1" again and again and no online match
+            // could ever reach pit 3 and finish.
+            //
+            // A capture counts only when it is the striker's current target. A marble that ends
+            // up in a different pit is simply no capture, rather than a reason to reject the shot.
+            int target = Players[playerIndex].CurrentPit;
+            int conquered = r.PitConqueredNumber == target ? target : 0;
+            if (r.PitConqueredNumber != 0 && conquered == 0)
+            {
+                Console.WriteLine($"[ROOM {Room.RoomCode}] P{playerIndex + 1} landed in pit {r.PitConqueredNumber} "
+                                + $"but is aiming for pit {target} - no capture");
+            }
 
-            if (r.PlayerFinished)
+            bool finished = false;
+            if (conquered != 0)
+            {
+                Console.WriteLine($"[ROOM {Room.RoomCode}] P{playerIndex + 1} conquered pit {conquered}");
+                if (conquered >= 3) finished = true;
+                else Players[playerIndex].CurrentPit = conquered + 1;
+            }
+            if (r.CurrentPitAfter != Players[playerIndex].CurrentPit || r.PlayerFinished != finished)
+            {
+                Console.WriteLine($"[ROOM {Room.RoomCode}] Note: P{playerIndex + 1} client reported pit {r.CurrentPitAfter}"
+                                + $"{(r.PlayerFinished ? " finished" : "")}; server has pit {Players[playerIndex].CurrentPit}"
+                                + $"{(finished ? " finished" : "")}");
+            }
+
+            if (finished)
             {
                 Players[playerIndex].IsFinished = true;
                 WinnerPlayerIndex = playerIndex;
@@ -412,7 +437,7 @@ namespace PitStrikerServer
             }
 
             // Bonus play rule preserved from the original engine.
-            bool earnedBonus = (r.PitConqueredNumber != 0 || r.HitOpponent) && _shotsTakenThisTurn < MaxShotsPerTurn;
+            bool earnedBonus = (conquered != 0 || r.HitOpponent) && _shotsTakenThisTurn < MaxShotsPerTurn;
             if (earnedBonus)
             {
                 Console.WriteLine($"[ROOM {Room.RoomCode}] P{playerIndex + 1} earned EXTRA PLAY ({_shotsTakenThisTurn}/{MaxShotsPerTurn})");
