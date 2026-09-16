@@ -110,7 +110,7 @@ namespace PitStriker.GameplayKit.EditorTools
             {
                 sb.AppendLine($"  PowerArea wired              : {binder.PowerArea != null}");
                 sb.AppendLine($"  PanelImage wired             : {binder.PanelImage != null}"
-                            + (binder.PanelImage != null ? $" sprite={binder.PanelImage.sprite?.name}" : ""));
+                            + (binder.PanelImage != null ? $" sprite={(binder.PanelImage.sprite != null ? binder.PanelImage.sprite.name : "none")}" : ""));
                 sb.AppendLine($"  Thumb wired                  : {binder.Thumb != null}");
                 if (binder.PowerArea == null || binder.PanelImage == null || binder.Thumb == null)
                 { fails++; sb.AppendLine("FAIL shot UI not fully wired"); }
