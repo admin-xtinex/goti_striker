@@ -23,27 +23,30 @@ namespace PitStriker.GameplayKit.EditorTools
                 EditorUtility.DisplayDialog("Gameplay Ground", "Drag the ground model into the scene, select it in the Hierarchy, then run this.", "OK");
                 return;
             }
+            string report = Install(ground, interactive: true);
+            if (report != null) EditorUtility.DisplayDialog("Gameplay Ground", report, "OK");
+        }
+
+        /// <summary>
+        /// Puts <paramref name="ground"/> into the kit's ground slot and cuts the pit holes. When not
+        /// interactive the model's colliders are disabled and any previous ground is replaced without
+        /// asking. Returns a summary, or null if the user cancelled.
+        /// </summary>
+        public static string Install(GameObject ground, bool interactive)
+        {
             var kit = Object.FindAnyObjectByType<GameplayKitRoot>();
-            if (kit == null)
-            {
-                EditorUtility.DisplayDialog("Gameplay Ground", "No gameplay kit (GameplayKitRoot) in the open scene.", "OK");
-                return;
-            }
-            if (ground.transform.IsChildOf(kit.transform))
-            {
-                EditorUtility.DisplayDialog("Gameplay Ground", "Select a ground model that is not already part of the gameplay kit.", "OK");
-                return;
-            }
+            if (kit == null) return "No gameplay kit (GameplayKitRoot) in the open scene.";
+            if (ground.transform.IsChildOf(kit.transform)) return $"'{ground.name}' is already part of the gameplay kit.";
 
             string prefabPath = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(kit.gameObject);
             bool kitIsPrefab = !string.IsNullOrEmpty(prefabPath);
 
             // 1. Colliders on the model: the kit already provides the playing surface and pit colliders.
             var colliders = ground.GetComponentsInChildren<Collider>(true).Where(c => c.enabled && !c.isTrigger).ToList();
-            if (colliders.Count > 0 && EditorUtility.DisplayDialog("Gameplay Ground",
+            if (colliders.Count > 0 && (!interactive || EditorUtility.DisplayDialog("Gameplay Ground",
                     $"'{ground.name}' has {colliders.Count} collider(s). The gameplay kit already provides the playing " +
                     "surface and the pit colliders; a collider on the ground model covers the pits and can stop " +
-                    "marbles dropping in.\n\nDisable the model's colliders?", "Disable (recommended)", "Keep them"))
+                    "marbles dropping in.\n\nDisable the model's colliders?", "Disable (recommended)", "Keep them")))
             {
                 foreach (var c in colliders) { Undo.RecordObject(c, "Disable ground collider"); c.enabled = false; }
             }
@@ -71,7 +74,7 @@ namespace PitStriker.GameplayKit.EditorTools
                     slot = s.transform;
                 }
             }
-            if (slot == null) { EditorUtility.DisplayDialog("Gameplay Ground", "Could not create the ground slot in the kit.", "OK"); return; }
+            if (slot == null) return "Could not create the ground slot in the kit.";
 
             // 3. Replace whatever ground was there.
             var previous = new List<Transform>();
@@ -79,29 +82,42 @@ namespace PitStriker.GameplayKit.EditorTools
             if (previous.Count > 0)
             {
                 string names = string.Join(", ", previous.Select(p => p.name));
-                if (!EditorUtility.DisplayDialog("Gameplay Ground", $"Replace the current ground ({names}) with '{ground.name}'?", "Replace", "Cancel"))
-                    return;
+                if (interactive && !EditorUtility.DisplayDialog("Gameplay Ground", $"Replace the current ground ({names}) with '{ground.name}'?", "Replace", "Cancel"))
+                    return null;
                 if (kitIsPrefab)
                 {
                     var contents = PrefabUtility.LoadPrefabContents(prefabPath);
                     var contentSlot = contents.transform.Find(GroundWithPitHoles.SlotName);
                     if (contentSlot != null)
+                    {
                         for (int i = contentSlot.childCount - 1; i >= 0; i--) Object.DestroyImmediate(contentSlot.GetChild(i).gameObject);
+                        // Forget the removed ground, or the slot keeps references to deleted objects.
+                        var comp = contentSlot.GetComponent<GroundWithPitHoles>();
+                        if (comp != null)
+                        {
+                            var so = new SerializedObject(comp);
+                            so.FindProperty("_entries").ClearArray();
+                            so.ApplyModifiedPropertiesWithoutUndo();
+                        }
+                    }
                     PrefabUtility.SaveAsPrefabAsset(contents, prefabPath);
                     PrefabUtility.UnloadPrefabContents(contents);
                 }
                 foreach (var p in previous) if (p != null) Undo.DestroyObjectImmediate(p.gameObject);   // scene-only leftovers
             }
 
-            // 4. Move the model in, keeping its world placement, and store it in the kit prefab.
+            // 4. Move the model in (keeping its world placement) and cut the pit holes, then store the
+            //    already-cut ground in the kit prefab in one go.
             Undo.SetTransformParent(ground.transform, slot, "Use as gameplay ground");
-            if (kitIsPrefab) PrefabUtility.ApplyAddedGameObject(ground, prefabPath, InteractionMode.UserAction);
-
-            // 5. Cut the pit holes now rather than on the next editor tick.
-            string report = slot.GetComponent<GroundWithPitHoles>().Refresh(force: true);
+            var slotComp = slot.GetComponent<GroundWithPitHoles>();
+            string report = slotComp.Refresh(force: true, applyToPrefab: false);
+            if (kitIsPrefab)
+            {
+                PrefabUtility.ApplyAddedGameObject(ground, prefabPath, InteractionMode.AutomatedAction);
+                slotComp.ApplyToPrefabIfInstance();
+            }
             EditorSceneManager.MarkSceneDirty(kit.gameObject.scene);
-            EditorUtility.DisplayDialog("Gameplay Ground",
-                $"'{ground.name}' is now the gameplay ground{(kitIsPrefab ? " in " + prefabPath : "")}.\n\n{report}\n\nSave the scene.", "OK");
+            return $"'{ground.name}' is now the gameplay ground{(kitIsPrefab ? " in " + prefabPath : "")}.\n\n{report}\n\nSave the scene.";
         }
 
         [MenuItem("Pit Striker/Ground/Re-cut Pit Holes")]

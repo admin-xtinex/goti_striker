@@ -54,7 +54,13 @@ namespace PitStriker.GameplayKit
         }
 
         /// <summary>Cuts any child ground mesh that is new, swapped, or out of date with the pits.</summary>
-        public string Refresh(bool force)
+        public string Refresh(bool force) => Refresh(force, applyToPrefab: true);
+
+        /// <summary>
+        /// As <see cref="Refresh(bool)"/>; <paramref name="applyToPrefab"/> false leaves prefab syncing
+        /// to the caller (used while a ground is being added to the kit prefab).
+        /// </summary>
+        public string Refresh(bool force, bool applyToPrefab)
         {
             var kit = GetComponentInParent<GameplayKitRoot>();
             var holes = PitHoleMeshCutter.FindHoles(kit != null ? kit.transform : null);
@@ -71,6 +77,8 @@ namespace PitStriker.GameplayKit
                 if (entry == null) { entry = new Entry { Filter = mf, Source = mf.sharedMesh }; _entries.Add(entry); changed = true; }
                 else if (mf.sharedMesh != entry.Cut && mf.sharedMesh != entry.Source) { entry.Source = mf.sharedMesh; entry.Cut = null; changed = true; }
                 if (entry.Source == null) entry.Source = mf.sharedMesh;
+                // Never cut a cut copy: trace a generated mesh back to the model's own mesh.
+                entry.Source = OriginalMesh(mf, entry.Source);
 
                 string signature = Signature(holes, mf.transform, entry.Source);
                 if (!force && entry.Cut != null && mf.sharedMesh == entry.Cut && entry.Signature == signature) continue;
@@ -110,7 +118,7 @@ namespace PitStriker.GameplayKit
             if (changed)
             {
                 EditorUtility.SetDirty(this);
-                ApplyToPrefabIfInstance();
+                if (applyToPrefab) ApplyToPrefabIfInstance();
             }
             return report.Count > 0 ? string.Join("\n", report) : "Ground already cut for the current pits.";
         }
@@ -142,28 +150,39 @@ namespace PitStriker.GameplayKit
         }
 
         /// <summary>When this slot is inside a prefab instance, keep the prefab asset in step.</summary>
-        void ApplyToPrefabIfInstance()
+        public void ApplyToPrefabIfInstance()
         {
             if (!PrefabUtility.IsPartOfPrefabInstance(this)) return;
             string path = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(this);
             if (string.IsNullOrEmpty(path)) return;
             try
             {
+                // Whole-object applies: per-property applies of the entry list crashed natively
+                // when its references pointed at a ground that had just been replaced.
                 foreach (var e in _entries)
                 {
                     if (e.Filter == null || !PrefabUtility.IsPartOfPrefabInstance(e.Filter)) continue;
                     if (PrefabUtility.IsAddedGameObjectOverride(e.Filter.gameObject)) continue;
-                    var mesh = new SerializedObject(e.Filter).FindProperty("m_Mesh");
-                    if (mesh.prefabOverride) PrefabUtility.ApplyPropertyOverride(mesh, path, InteractionMode.AutomatedAction);
+                    if (PrefabUtility.HasPrefabInstanceAnyOverrides(PrefabUtility.GetNearestPrefabInstanceRoot(e.Filter), false))
+                        PrefabUtility.ApplyObjectOverride(e.Filter, path, InteractionMode.AutomatedAction);
                 }
-                var entries = new SerializedObject(this).FindProperty("_entries");
-                if (entries.prefabOverride) PrefabUtility.ApplyPropertyOverride(entries, path, InteractionMode.AutomatedAction);
+                PrefabUtility.ApplyObjectOverride(this, path, InteractionMode.AutomatedAction);
             }
             catch (Exception ex)
             {
                 // Leave it as a scene override rather than fail; the cut is still in place.
                 Debug.LogWarning($"[GROUND] Could not apply the cut ground to {path}: {ex.Message}");
             }
+        }
+
+        static Mesh OriginalMesh(MeshFilter mf, Mesh candidate)
+        {
+            string path = AssetDatabase.GetAssetPath(candidate);
+            if (string.IsNullOrEmpty(path) || !path.StartsWith(GeneratedFolder)) return candidate;
+            var original = PrefabUtility.GetCorrespondingObjectFromOriginalSource(mf);
+            if (original != null && original.sharedMesh != null && !AssetDatabase.GetAssetPath(original.sharedMesh).StartsWith(GeneratedFolder))
+                return original.sharedMesh;
+            return candidate;
         }
 
         static string Signature(List<PitHoleMeshCutter.Hole> holes, Transform ground, Mesh source)

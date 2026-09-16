@@ -98,6 +98,33 @@ namespace PitStriker.GameplayKit.EditorTools
             yield return 2.5f;
             foreach (var w in Capture("play")) yield return w;
             yield return 0.5f;
+            SceneShot("overview", new Vector3(0f, 55f, -38f), new Vector3(0f, 0f, 16f));
+            SceneShot("corner", new Vector3(16f, 9f, -16f), new Vector3(6f, 0f, -6f));
+            yield return 0.2f;
+        }
+
+        /// <summary>Scene-only render from a free camera (no UI), for checking layout from above.</summary>
+        static void SceneShot(string name, Vector3 from, Vector3 lookAt)
+        {
+            var go = new GameObject("HudCaptureSceneCamera");
+            var cam = go.AddComponent<Camera>();
+            go.transform.SetPositionAndRotation(from, Quaternion.LookRotation(lookAt - from));
+            cam.fieldOfView = 55f;
+            cam.farClipPlane = 400f;
+            var rt = new RenderTexture(Width, Height, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.Render();
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(Width, Height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, Width, Height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            File.WriteAllBytes(Path.GetFullPath(Path.Combine(OutDir, $"{Tag}_{name}.png")), tex.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(tex);
+            cam.targetTexture = null;
+            rt.Release();
+            UnityEngine.Object.DestroyImmediate(go);
         }
 
         static void StopBots()
