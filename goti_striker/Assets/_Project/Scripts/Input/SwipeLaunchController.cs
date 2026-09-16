@@ -32,8 +32,7 @@ namespace PitStriker.Input
 
         public enum AimMode
         {
-            PrecisionPullBack,  // Slingshot pull-back aiming for tactical gameplay
-            ForwardFlickThrow   // Fast upward flick throwing gesture for the Opening Toss Phase
+            PrecisionPullBack   // Pull back = ground shot, swipe forward = lofted shot (toss included)
         }
 
         [Header("Aiming Mode")]
@@ -218,43 +217,9 @@ namespace PitStriker.Input
                 Vector2 screenDelta = screenPos - _dragScreenStart;
                 if (_shotUI != null) _shotUI.SetThumbOffset(screenDelta);
 
-                if (_aimMode == AimMode.ForwardFlickThrow)
                 {
-                    // Forward Flick Mode (Toss Phase): Upward swipe on screen means forward throw
-                    float dt = Mathf.Max(0.001f, Time.time - _dragStartTime);
-                    float flickSpeed = screenDelta.magnitude / dt;
-
-                    if (screenDelta.y > 15f)
-                    {
-                        _currentPower = Mathf.Clamp01(flickSpeed / (Screen.height * 1.5f));
-                        OnPowerChanged?.Invoke(_currentPower);
-
-                        Vector3 camFwd = Vector3.ProjectOnPlane(_mainCamera.transform.forward, Vector3.up).normalized;
-                        Vector3 camRight = Vector3.ProjectOnPlane(_mainCamera.transform.right, Vector3.up).normalized;
-                        Vector2 aimDir = screenDelta.normalized;
-                        _shootDirection = (camRight * aimDir.x + camFwd * aimDir.y).normalized;
-
-                        if (_trajectoryLine != null)
-                        {
-                            _trajectoryLine.enabled = GameDifficulty.ShowTrajectoryGuide;
-                            Vector3 marblePos = _marble != null ? _marble.transform.position : transform.position;
-                            Vector3 startPos = marblePos + (Vector3.up * 0.05f);
-                            Vector3 endPos = startPos + (_shootDirection * (Mathf.Max(0.3f, _currentPower) * _maxVisualTrajectoryLength * GameDifficulty.TrajectoryLengthMultiplier));
-
-                            _trajectoryLine.SetPosition(0, startPos);
-                            _trajectoryLine.SetPosition(1, endPos);
-                        }
-                    }
-                    else
-                    {
-                        _currentPower = 0f;
-                        if (_trajectoryLine != null) _trajectoryLine.enabled = false;
-                        OnPowerChanged?.Invoke(0f);
-                    }
-                }
-                else
-                {
-                    // Precision Slingshot Mode (Main Match): Pull backward to shoot forward
+                    // One gesture for every throw, the opening toss included: pull back to shoot
+                    // forward along the ground, or swipe forward for a lofted shot.
                     float dragPixels = screenDelta.magnitude;
                     float minPixels = Mathf.Max(10f, _minDragDistance * 60f);
                     float maxPixels = Mathf.Clamp(_maxDragDistance * 80f, 160f, Screen.height * 0.45f);
@@ -346,12 +311,9 @@ namespace PitStriker.Input
                 // checks the input is structurally sane (pitch <= NetworkProtocol.MaxAllowedPitch).
                 bool onlineMatch = PitStriker.Networking.Client.CloudMatchManager.Instance != null
                                    && PitStriker.Networking.Client.CloudMatchManager.Instance.IsOnlineMatchActive;
-                if (openingToss)
-                {
-                    pitch = 0.08f;
-                    maxPitch = 0.12f;
-                }
-                else if (mode == ShotMode.Loft && (cfg == null || cfg.AllowLoftShot))
+                // The toss uses the same shot types as normal play; openingToss only tells the
+                // match whose throw this was, not how it is thrown.
+                if (mode == ShotMode.Loft && (cfg == null || cfg.AllowLoftShot))
                 {
                     // Fixed elevation: power sets how far the lob goes, not whether it leaves the ground.
                     pitch = cfg != null ? cfg.LoftPitch : Mathf.Tan(35f * Mathf.Deg2Rad);
@@ -367,7 +329,7 @@ namespace PitStriker.Input
                 Vector3 launchDir = (dir + Vector3.up * pitch).normalized;
                 float force = power * _maxLaunchForce * GameDifficulty.LaunchForceMultiplier;
                 // A lob needs some speed to arc at all; below this a short swipe up only skimmed.
-                if (!openingToss && mode == ShotMode.Loft && cfg != null)
+                if (mode == ShotMode.Loft && cfg != null)
                     force = Mathf.Max(force, cfg.LoftMinLaunchSpeed);
                 _marble.Halt();
                 _marble.ApplyImpulse(launchDir, force, maxPitch);
@@ -383,7 +345,7 @@ namespace PitStriker.Input
                                         mode == ShotMode.Loft, openingToss);
                 }
                 Debug.Log($"<color=#00FFAA><b>[SHOT {mode}]</b> power={power * 100:F0}% force={force:F1}N pitch={pitch:F2}</color>");
-                if (!openingToss && cfg != null)
+                if (cfg != null)
                     cfg.NotifyShotCompleted();
             }
 

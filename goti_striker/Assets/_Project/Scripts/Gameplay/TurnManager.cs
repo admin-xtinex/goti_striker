@@ -23,7 +23,7 @@ namespace PitStriker.Gameplay
         {
             Menu,          // Main menu / Match setup
             Paused,        // Mid-match pause
-            TossPhase,     // Opening Lag Phase: Players flick-throw towards Pit 3 to decide turn order
+            TossPhase,     // Opening Lag Phase: Players throw (ground or lofted) towards Pit 3 to decide turn order
             ReadyToAim,    // Precision aim for active player
             Rolling,       // Marble in motion
             Evaluating,    // Outcome evaluation
@@ -297,13 +297,13 @@ namespace PitStriker.Gameplay
             {
                 SetState(GameState.TossPhase);
                 if (SwipeLaunchController.Instance != null)
-                    SwipeLaunchController.Instance.SetAimMode(SwipeLaunchController.AimMode.ForwardFlickThrow);
+                    SwipeLaunchController.Instance.SetAimMode(SwipeLaunchController.AimMode.PrecisionPullBack);
 
                 SmoothFollowCamera cam = FindAnyObjectByType<SmoothFollowCamera>();
                 if (cam != null && view?.marble != null) cam.SetTarget(view.marble.transform, GetPitPosition(3));
 
                 OnStatusMessage?.Invoke(myThrow
-                    ? "TOSS: SWIPE FORWARD TO PIT 3 - CLOSEST PLAYS FIRST"
+                    ? "TOSS: THROW TOWARD PIT 3 - CLOSEST PLAYS FIRST"
                     : "TOSS: OPPONENT IS THROWING...");
             }
             else if (phase == PitStriker.Networking.Shared.CloudMatchPhase.ReadyToAim)
@@ -1493,10 +1493,10 @@ namespace PitStriker.Gameplay
                 cam.SetTarget(p.marble.transform, GetPitPosition(3));
             }
 
-            // Bind SwipeLaunchController in Forward Flick Throw Mode
+            // Bind SwipeLaunchController with the normal gesture: ground or lofted toss, like any shot
             if (SwipeLaunchController.Instance != null && p.marble != null)
             {
-                SwipeLaunchController.Instance.SetAimMode(SwipeLaunchController.AimMode.ForwardFlickThrow);
+                SwipeLaunchController.Instance.SetAimMode(SwipeLaunchController.AimMode.PrecisionPullBack);
                 SwipeLaunchController.Instance.SetActiveMarble(p.marble);
             }
 
@@ -1512,7 +1512,7 @@ namespace PitStriker.Gameplay
             }
             else
             {
-                OnStatusMessage?.Invoke($"TOSS: {p.name.ToUpper()} • SWIPE FORWARD TO PIT 3!");
+                OnStatusMessage?.Invoke($"TOSS: {p.name.ToUpper()} • THROW TOWARD PIT 3!");
             }
         }
 

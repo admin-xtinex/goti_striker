@@ -10,7 +10,7 @@ namespace PitStriker.UI
     /// Swipe-to-shoot presentation built from the supplied artwork (Resources/UI/SwipeControl):
     /// up chevrons, a glowing dial that follows the finger, down chevrons and a tapping hand hint,
     /// with text captions in the HUD's font ("Swipe up for lofted shot" / "Drag down, aim and
-    /// release for grounded shot"); during the toss "Swipe up to toss" replaces them.
+    /// release for grounded shot"). The toss uses the same two shots, so it shows the same.
     ///
     /// Visual only. Everything sits inside the existing PowerArea rect, whose position and size
     /// decide where a shot gesture may start - those are not touched. The dial rides on the
@@ -26,7 +26,7 @@ namespace PitStriker.UI
         ShotControlBinder _binder;
         Vector2 _thumbHome;
         Image _up, _down, _dial;
-        Text _upCaption, _downCaption, _tossLabel;
+        Text _upCaption, _downCaption;
         CanvasGroup _handGroup;
         RectTransform _hand;
         float _power;
@@ -83,7 +83,6 @@ namespace PitStriker.UI
             // Vertical stack centred on the 356-unit-tall area: caption, chevrons, dial, chevrons,
             // caption. Captions are wider than the area; they are not raycast targets.
             _upCaption = Label(root, "CaptionUp", "Swipe up for" + NewLine + "lofted shot", 192f);
-            _tossLabel = Label(root, "TossLabel", "Swipe up" + NewLine + "to toss", 192f);
             _up = HudArt.Image("ChevronsUp", root, Art("ChevronsUp"), Idle);
             HudArt.Place(_up.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 110f), new Vector2(78f, 75f));
             _up.preserveAspect = true;
@@ -135,15 +134,6 @@ namespace PitStriker.UI
             if (_up == null) return;
             float t = Time.unscaledTime;
 
-            var tm = TurnManager.Instance;
-            bool toss = tm != null && tm.CurrentState == TurnManager.GameState.TossPhase;
-
-            // Toss: one forward throw, so its own label. Lofts work online too, so no online case.
-            SetActive(_tossLabel, toss);
-            SetActive(_upCaption, !toss);
-            SetActive(_down, !toss);
-            SetActive(_downCaption, !toss);
-
             // Which way the finger is going, from the thumb the binder moves.
             Vector2 offset = _binder.Thumb != null ? _binder.Thumb.anchoredPosition - _thumbHome : Vector2.zero;
             bool dragging = offset.sqrMagnitude > 4f;
@@ -157,7 +147,6 @@ namespace PitStriker.UI
             Fade(_down, dragging ? Mathf.Lerp(0.35f, 1f, downBias) : idleDown);
             Fade(_upCaption, dragging ? Mathf.Lerp(0.45f, 1f, upBias) : 1f);
             Fade(_downCaption, dragging ? Mathf.Lerp(0.45f, 1f, downBias) : 1f);
-            Fade(_tossLabel, dragging ? Mathf.Lerp(0.45f, 1f, upBias) : 1f);
 
             if (_dial != null)
             {
@@ -176,11 +165,6 @@ namespace PitStriker.UI
         static void Fade(Graphic g, float alpha)
         {
             var c = g.color; c.a = alpha; g.color = c;
-        }
-
-        static void SetActive(Component c, bool on)
-        {
-            if (c.gameObject.activeSelf != on) c.gameObject.SetActive(on);
         }
     }
 }

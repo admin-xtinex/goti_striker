@@ -3,15 +3,16 @@
 ## Shot type is chosen by swipe direction
 
 There is **no Ground/Loft toggle**. The direction of the swipe inside the power area picks
-the shot, and power scales from how far *and* how fast you swipe.
+the shot, and power scales from how far *and* how fast you swipe. This applies to **every
+throw, the opening toss included**, offline and online.
 
 | Swipe | Shot | Behaviour |
 |---|---|---|
-| **Backward** (down the screen) | **Ground** | Slingshot pull. Rolls along the surface. Pitch = `GroundMaxPitch * 0.5` ≈ 2.3° |
-| **Forward** (up the screen) | **Loft** | Throw forward. Parabolic arc. Pitch = `GetLoftPitch(power)`, up to ~33° |
+| **Backward** (down the screen) | **Ground** | Slingshot pull. Rolls along the surface. Pitch = `GroundMaxPitch * 0.5` (about 2.3 deg) |
+| **Forward** (up the screen) | **Loft** | Throw forward. Parabolic arc at a fixed `LoftLaunchAngle` (35 deg) |
 
 Both launch on release. Aim direction is taken from the swipe vector projected onto the
-camera's ground plane, exactly as before.
+camera's ground plane.
 
 ## Power
 
@@ -19,40 +20,37 @@ camera's ground plane, exactly as before.
 distNorm  = (dragPixels - minPixels) / (maxPixels - minPixels)
 speedNorm = (dragPixels / dragSeconds) / (Screen.height * 1.2)
 power     = clamp01( distNorm * lerp(0.80, 1.25, speedNorm) )
+force     = power * _maxLaunchForce (32) * difficulty LaunchForceMultiplier
 ```
 
-Distance sets the base, speed scales it. A long slow pull can still reach full power;
-a fast flick of the same length hits harder. Power then drives both:
+Distance sets the base, speed scales it. A long slow pull can still reach full power; a fast
+flick of the same length hits harder. Marbles weigh 1 kg, so force is launch speed in m/s.
 
-- **Distance** — `force = power * _maxLaunchForce (32)`
-- **Height** — `GetLoftPitch(power) = Lerp(LoftMinAngle, LoftMaxAngle, power) * LoftVerticalForce`
+## Loft
 
-So height and distance both follow the swipe automatically.
+`ShotModeConfig.LoftLaunchAngle = 35` degrees at **every** power: power sets how far a lob
+goes, not whether it leaves the ground. `LoftMinLaunchSpeed = 5.5` m/s, so even a tiny swipe
+up arcs (about 0.5 m peak). `MarbleController` caps height at 6.5 m (was 1.8 m, which cut
+lobs off at the top).
 
-## Loft tuning
+Approximate arcs at 35 deg, ignoring drag:
 
-`ShotModeConfig.LoftVerticalForce = 1.20` (was 0.45, which made the arc nearly flat).
+| Launch speed | Lands | Peak |
+|---|---|---|
+| 5.5 m/s (minimum) | 3 m | 0.5 m |
+| 10 m/s | 9 m (pit 1) | 1.6 m |
+| 15 m/s | 22 m (pit 2) | 3.9 m |
+| 20 m/s | 37 m (pit 3) | 6.4 m |
 
-Measured through the real launch path:
+Online, lofts are sent like any shot; the server's structural check allows launch
+direction y up to `NetworkProtocol.MaxAllowedPitch` (0.60; sin 35 deg = 0.574).
 
-| Shot | Angle | Peak height | Travel |
-|---|---|---|---|
-| Ground @100% | 2.3° | 1.54 m | 43.3 m |
-| Loft @50% | 24.2° | 1.71 m | 22.7 m |
-| Loft @100% | 33.4° | 5.96 m | 43.3 m |
+## Opening toss
 
-Loft peaks ~3.9× higher than a ground shot. Tune live via the kit root → `ShotModeConfig`
-→ `LoftVerticalForce` (0.90 → 26°/4.65 m, 1.60 → 41°/6.43 m but travel starts dropping).
-
-## Opening toss phase — deliberate exception
-
-While `TurnManager.CurrentState == TossPhase`, `SwipeLaunchController.ExecuteLaunch`
-hard-codes `pitch = 0.08`, `maxPitch = 0.12` and **ignores the shot mode entirely**
-(`SwipeLaunchController:309-313`). The opening throw is always a flat lag shot.
-
-The toss uses `AimMode.ForwardFlickThrow` — a **fast upward flick**, and it is speed-based,
-so a slow drag will not register. The phase ends only once every player has tossed
-(`TurnManager:663`). Loft becomes available after that.
+The toss uses the same gesture and the same two shots as normal play: ground or lofted,
+same angles, power and minimum loft speed. `TossPhase` only decides whose throw it is and
+that the result is scored by distance to pit 3. Bots throw their toss directly and are
+unaffected. The phase ends once every player has tossed (`TurnManager:663`).
 
 ## Power area
 

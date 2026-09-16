@@ -226,7 +226,7 @@ namespace PitStriker.UI
                 }
                 if (_statusBanner != null)
                 {
-                    _statusBanner.text = "TOSS PHASE: SWIPE FORWARD TO THROW TO PIT 3!";
+                    _statusBanner.text = "TOSS PHASE: THROW TOWARD PIT 3!";
                 }
                 if (_parText != null)
                 {
