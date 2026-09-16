@@ -153,12 +153,18 @@ namespace PitStrikerServer
                 if (room.DisconnectGraceStartUtc.HasValue)
                 {
                     double elapsed = (DateTime.UtcNow - room.DisconnectGraceStartUtc.Value).TotalSeconds;
-                    if (elapsed >= NetworkProtocol.DisconnectGracePeriod)
+                    if (room.MatchOver)
+                    {
+                        // Leaving after the match is decided is not a forfeit; keep the result.
+                        room.DisconnectGraceStartUtc = null;
+                    }
+                    else if (elapsed >= NetworkProtocol.DisconnectGracePeriod)
                     {
                         Console.WriteLine($"[ROOM {room.RoomCode}] Disconnect grace period expired. Declaring forfeit.");
                         room.DisconnectGraceStartUtc = null;
 
                         int remainingPlayer = 1 - room.DisconnectedPlayerIndex;
+                        room.ForfeitWinnerIndex = remainingPlayer;
                         _ = room.BroadcastOpCodeAsync(NetworkOpCode.MatchAbandoned, w =>
                         {
                             w.WriteInt32(remainingPlayer); // Remaining player is declared winner

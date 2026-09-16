@@ -30,6 +30,8 @@ namespace PitStrikerServer
 
         public DateTime? DisconnectGraceStartUtc { get; set; }
         public int DisconnectedPlayerIndex { get; set; } = -1;
+        /// <summary>Winner declared by a disconnect forfeit, or -1. A match already decided at the table never gets one.</summary>
+        public int ForfeitWinnerIndex { get; set; } = -1;
 
         private readonly NetworkByteWriter _writer = new NetworkByteWriter(2048);
 

@@ -109,6 +109,7 @@ namespace PitStrikerServer
         {
             ResetMatch();
             Room.MatchOver = false;   // a rematch starts clean
+            Room.ForfeitWinnerIndex = -1;
             Phase = CloudMatchPhase.TossPhase;
             ActivePlayerIndex = OpeningPlayerPicker() == 1 ? 1 : 0;   // who throws first
             TurnId = 1;
@@ -432,6 +433,10 @@ namespace PitStrikerServer
                 WinnerPlayerIndex = playerIndex;
                 Phase = CloudMatchPhase.MatchCompleted;
                 TurnId++;
+                // Decided at the table. Without this a player leaving the result screen started
+                // the disconnect grace timer and, 20 s later, a forfeit was broadcast over the
+                // real result to the winner who was still watching it.
+                Room.MatchOver = true;
                 Console.WriteLine($"[ROOM {Room.RoomCode}] MATCH FINISHED - winner P{playerIndex + 1} ({Players[playerIndex].Name})");
                 return;
             }

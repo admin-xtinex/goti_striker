@@ -313,6 +313,7 @@ namespace PitStrikerServer.Tests
                 Shoot(e3, 0, 3, 3, out _);   // pit 3
                 Check("conquering pit 3 finishes the match for that player",
                       e3.Phase == CloudMatchPhase.MatchCompleted && e3.WinnerPlayerIndex == 0);
+                Check("a match finished at the table is marked over", e3.Room.MatchOver);
 
                 // A structurally broken result from the real striker must not hold the match.
                 var e4 = PastToss("PIT004");
@@ -450,6 +451,21 @@ namespace PitStrikerServer.Tests
             Check("decided match with nobody connected is pruned immediately", !Contains(rm, decided));
             Check("undecided room inside the reconnect window is kept", Contains(rm, fresh));
             Check("undecided room past the reconnect window is pruned", !Contains(rm, stale));
+
+            // Disconnect grace after the match is decided must not declare a forfeit.
+            var rm2 = new RoomManager();
+            var finished = SeatTwoDisconnected(rm2);
+            finished.MatchOver = true;
+            finished.DisconnectedPlayerIndex = 1;
+            finished.DisconnectGraceStartUtc = DateTime.UtcNow.AddSeconds(-(NetworkProtocol.DisconnectGracePeriod + 1));
+            var live = SeatTwoDisconnected(rm2);
+            live.DisconnectedPlayerIndex = 1;
+            live.DisconnectGraceStartUtc = DateTime.UtcNow.AddSeconds(-(NetworkProtocol.DisconnectGracePeriod + 1));
+            rm2.Tick(0.05f);
+            Check("leaving a finished match is not a forfeit",
+                  finished.ForfeitWinnerIndex == -1 && finished.DisconnectGraceStartUtc == null);
+            Check("failing to return to an unfinished match still forfeits it",
+                  live.ForfeitWinnerIndex == 0 && live.MatchOver);
         }
 
         private static void Check(string name, bool ok)
