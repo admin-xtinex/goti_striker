@@ -13,7 +13,9 @@ namespace PitStrikerServer.Tests
     /// real binary protocol — no mocks — so turn ownership, shot ids, duplicate rejection,
     /// result acceptance and accepted-state broadcast are exercised end to end.
     ///
-    /// Run with:  dotnet run --project Server/PitStrikerServer.Tests -- --v2
+    /// Run with:  dotnet Server/PitStrikerServer.Tests/bin/Release/net10.0/PitStrikerServer.Tests.dll --v2
+    /// (build first). Do not rely on "dotnet run ... -- --v2": in some shells the argument
+    /// never reaches the app and the legacy suite runs instead, reporting a misleading pass.
     /// </summary>
     public static class V2ProtocolTests
     {
@@ -211,6 +213,48 @@ namespace PitStrikerServer.Tests
                 Check("rematch clears MatchOver", !over.MatchOver);
             }
             finally { AuthoritativeMatchEngine.OpeningPlayerPicker = saved; }
+
+            RunPruneChecks();
+        }
+
+        /// <summary>
+        /// Exercises RoomManager.PruneDeadRooms directly. The first version of the match-over
+        /// rule shipped unreachable and no test caught it, because nothing tested pruning; it
+        /// was only noticed when live rooms were all pruned by the slower abandoned rule.
+        /// </summary>
+        private static void RunPruneChecks()
+        {
+            // Players whose sockets were never opened: they hold a slot but IsConnected is false,
+            // exactly like a player who dropped and has not reconnected.
+            static Room SeatTwoDisconnected(RoomManager rm)
+            {
+                var room = rm.CreateRoom();
+                room.AddPlayer(new ClientSession("s-" + Guid.NewGuid().ToString("N"), new ClientWebSocket(), "P1"));
+                room.AddPlayer(new ClientSession("s-" + Guid.NewGuid().ToString("N"), new ClientWebSocket(), "P2"));
+                return room;
+            }
+
+            static bool Contains(RoomManager rm, Room room)
+            {
+                foreach (var r in rm.ActiveRooms) if (ReferenceEquals(r, room)) return true;
+                return false;
+            }
+
+            var rm = new RoomManager();
+
+            var decided = SeatTwoDisconnected(rm);
+            decided.MatchOver = true;
+            decided.NoConnectionSinceUtc = DateTime.UtcNow;          // only just emptied
+            var fresh = SeatTwoDisconnected(rm);
+            fresh.NoConnectionSinceUtc = DateTime.UtcNow;            // still inside reconnect window
+            var stale = SeatTwoDisconnected(rm);
+            stale.NoConnectionSinceUtc = DateTime.UtcNow.AddSeconds(-(NetworkProtocol.DisconnectGracePeriod + 11));
+
+            rm.PruneDeadRooms();
+
+            Check("decided match with nobody connected is pruned immediately", !Contains(rm, decided));
+            Check("undecided room inside the reconnect window is kept", Contains(rm, fresh));
+            Check("undecided room past the reconnect window is pruned", !Contains(rm, stale));
         }
 
         private static void Check(string name, bool ok)
