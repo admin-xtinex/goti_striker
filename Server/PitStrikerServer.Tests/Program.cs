@@ -253,8 +253,28 @@ namespace PitStrikerServer.Tests
             Assert(engine.Phase == CloudMatchPhase.WaitingForPlayers, "Initial phase should be WaitingForPlayers");
 
             engine.StartMatch();
-            Assert(engine.Phase == CloudMatchPhase.ReadyToAim, "Phase should transition to ReadyToAim on start");
-            Assert(engine.ActivePlayerIndex == 0, "Player 0 should be active first");
+            Assert(engine.Phase == CloudMatchPhase.TossPhase, "Match should open with the toss");
+
+            // Play the toss out so Player 0 wins it (lands closer to pit 3) and shoots first.
+            for (int thrower = 0; thrower < 2; thrower++)
+            {
+                var toss = MakeV2Input(engine.TurnId, thrower);
+                toss.OpeningToss = true;
+                toss.MarbleId = thrower;
+                Assert(engine.SubmitShotInput(thrower, ref toss, out int tossId, out _), $"P{thrower + 1} toss should be accepted");
+                var landed = new ShotResultData
+                {
+                    TurnId = engine.TurnId,
+                    ShotId = tossId,
+                    PlayerIndex = thrower,
+                    Marbles = new[] { new MarbleFinalState { MarbleId = thrower, Position = new NetVector3(0f, 0.16f, thrower == 0 ? 30f : 20f) } },
+                    CurrentPitAfter = 1,
+                };
+                Assert(engine.SubmitShotResult(thrower, landed, out _), $"P{thrower + 1} toss result should be accepted");
+            }
+
+            Assert(engine.Phase == CloudMatchPhase.ReadyToAim, "Phase should reach ReadyToAim once both have tossed");
+            Assert(engine.ActivePlayerIndex == 0, "Player 0 won the toss and should be active first");
 
             // v2: the engine arbitrates turns; it no longer simulates marbles.
             var badInput = MakeV2Input(engine.TurnId, 1);

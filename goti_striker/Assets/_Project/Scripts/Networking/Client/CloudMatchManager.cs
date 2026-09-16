@@ -120,8 +120,9 @@ namespace PitStriker.Networking.Client
             // Input stays closed while a shot is in flight or while we are still reconciling,
             // so two phones can never start a turn from different states.
             if (!_reconciled || _localPendingShotId >= 0 || _replayingShotId >= 0) return false;
+            // The opening toss is a throw too: input opens for whichever player is up to toss.
             return CloudNetworkClient.Instance.LocalPlayerIndex == _activePlayerIndex
-                   && _currentPhase == CloudMatchPhase.ReadyToAim;
+                   && (_currentPhase == CloudMatchPhase.ReadyToAim || _currentPhase == CloudMatchPhase.TossPhase);
         }
 
         /// <summary>

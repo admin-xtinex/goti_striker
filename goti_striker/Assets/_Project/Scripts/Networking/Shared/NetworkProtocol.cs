@@ -5,7 +5,15 @@ namespace PitStriker.Networking.Shared
         // Version 2: shot-input relay + client-authored final state.
         // The server no longer simulates marbles, so a v1 client (which expects a rolling
         // physics feed) cannot share a match with a v2 server. The handshake rejects mismatches.
-        public const int Version = 2;
+        //
+        // Version 3: matches open with a server-run toss (CloudMatchPhase.TossPhase). A v2
+        // client never expects that phase, would treat it as "not my turn" forever, and hang
+        // at the start of every match - so it is refused at the handshake instead.
+        public const int Version = 3;
+
+        // Toss target: the centre of pit 3 on the lane centreline, in gameplay-prefab space.
+        // Must match BuildMapReadyKit.PitZ[2]. The server has no scene, so it cannot look it up.
+        public const float TossTargetZ = 31.0f;
         public const uint MagicHeader = 0x50495453; // "PITS" in ASCII
         public const int DefaultPort = 7777;
         public const float DefaultTurnDuration = 30.0f;

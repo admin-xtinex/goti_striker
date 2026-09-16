@@ -228,6 +228,9 @@ namespace PitStriker.Gameplay
 
             PitStriker.Networking.Client.CloudMatchManager.OnActivePlayerChangedEvent += HandleCloudActivePlayerChanged;
             PitStriker.Networking.Client.CloudMatchManager.OnPlayerStatsChangedEvent += HandleCloudPlayerStatsChanged;
+            // TurnManager used to hear phase changes only from the retired Netcode path, never from
+            // the live cloud client, so an online match could not enter the toss at all.
+            PitStriker.Networking.Client.CloudMatchManager.OnPhaseChangedEvent += HandleCloudPhaseChanged;
         }
 
         private void OnDisable()
@@ -246,6 +249,7 @@ namespace PitStriker.Gameplay
 
             PitStriker.Networking.Client.CloudMatchManager.OnActivePlayerChangedEvent -= HandleCloudActivePlayerChanged;
             PitStriker.Networking.Client.CloudMatchManager.OnPlayerStatsChangedEvent -= HandleCloudPlayerStatsChanged;
+            PitStriker.Networking.Client.CloudMatchManager.OnPhaseChangedEvent -= HandleCloudPhaseChanged;
 
             UnbindAllMarbles();
         }
@@ -259,7 +263,64 @@ namespace PitStriker.Gameplay
             {
                 CurrentPlayerIndex = newPlayerIndex;
                 ActivateCurrentPlayer();
+                // ActivateCurrentPlayer assumes a normal turn; re-apply the toss if we are in one.
+                ApplyCloudPhase();
             }
+        }
+
+        private void HandleCloudPhaseChanged(PitStriker.Networking.Shared.CloudMatchPhase phase) => ApplyCloudPhase();
+
+        private PitStriker.Networking.Shared.CloudMatchPhase _lastAppliedCloudPhase = PitStriker.Networking.Shared.CloudMatchPhase.WaitingForPlayers;
+
+        /// <summary>
+        /// Mirrors the server's phase into local game state and the swipe gesture.
+        ///
+        /// Runs after both phase and active-player changes because the server sends them together
+        /// but only raises the events that actually changed: passing the toss from one player to
+        /// the other changes the active player but not the phase, while the toss ending changes
+        /// the phase but may leave the same player active.
+        /// </summary>
+        private void ApplyCloudPhase()
+        {
+            var cm = PitStriker.Networking.Client.CloudMatchManager.Instance;
+            if (cm == null || !cm.IsOnlineMatchActive) return;
+
+            var phase = cm.CurrentPhase;
+            // Whose throw it is, independent of IsMyTurn's in-flight/reconcile gating: this only
+            // chooses the message, and must be right even while a result is still settling.
+            int localIdx = PitStriker.Networking.Client.CloudNetworkClient.Instance != null
+                ? PitStriker.Networking.Client.CloudNetworkClient.Instance.LocalPlayerIndex : -1;
+            bool myThrow = localIdx >= 0 && localIdx == cm.ActivePlayerIndex;
+            var view = LocalViewPlayer;
+
+            if (phase == PitStriker.Networking.Shared.CloudMatchPhase.TossPhase)
+            {
+                SetState(GameState.TossPhase);
+                if (SwipeLaunchController.Instance != null)
+                    SwipeLaunchController.Instance.SetAimMode(SwipeLaunchController.AimMode.ForwardFlickThrow);
+
+                SmoothFollowCamera cam = FindAnyObjectByType<SmoothFollowCamera>();
+                if (cam != null && view?.marble != null) cam.SetTarget(view.marble.transform, GetPitPosition(3));
+
+                OnStatusMessage?.Invoke(myThrow
+                    ? "TOSS: SWIPE FORWARD TO PIT 3 - CLOSEST PLAYS FIRST"
+                    : "TOSS: OPPONENT IS THROWING...");
+            }
+            else if (phase == PitStriker.Networking.Shared.CloudMatchPhase.ReadyToAim)
+            {
+                SetState(GameState.ReadyToAim);
+                if (SwipeLaunchController.Instance != null)
+                    SwipeLaunchController.Instance.SetAimMode(SwipeLaunchController.AimMode.PrecisionPullBack);
+
+                if (_lastAppliedCloudPhase == PitStriker.Networking.Shared.CloudMatchPhase.TossPhase)
+                {
+                    OnStatusMessage?.Invoke(myThrow
+                        ? "YOU WON THE TOSS - YOU PLAY FIRST"
+                        : "OPPONENT WON THE TOSS - THEY PLAY FIRST");
+                }
+            }
+
+            _lastAppliedCloudPhase = phase;
         }
 
         private void HandleCloudPlayerStatsChanged(int playerIdx, int strokes, int currentPit)
@@ -1664,6 +1725,9 @@ namespace PitStriker.Gameplay
                 _shotsTakenThisTurn = 0;
                 ActivateCurrentPlayer();
                 SetState(GameState.ReadyToAim);
+                // The server opens every online match with a toss. If its first state has already
+                // arrived, honour it rather than leaving the game in a normal turn it is not in.
+                ApplyCloudPhase();
 
                 if (NetworkMatchState.Instance != null && Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.IsServer)
                 {

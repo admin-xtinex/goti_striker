@@ -43,9 +43,21 @@ namespace PitStrikerServer
         private const int MaxShotsPerTurn = 3;
         private int _shotsTakenThisTurn = 0;
 
-        // Starting tees, used only to seed the first accepted state.
+        // Starting tees: seed the first accepted state, and where both marbles return after the toss.
         private static readonly NetVector3 Tee0 = new NetVector3(-0.4f, 0.25f, -6.0f);
         private static readonly NetVector3 Tee1 = new NetVector3(0.4f, 0.25f, -6.0f);
+
+        // ---- Opening toss ----
+        // Each player throws once at pit 3; whoever settles closest plays first. Mirrors the
+        // offline toss. Distances are measured here from the striker's own reported position.
+        private static readonly NetVector3 TossTarget = new NetVector3(0f, 0f, NetworkProtocol.TossTargetZ);
+        /// <summary>Distance recorded for a player who never threw, or whose throw never reported.</summary>
+        public const float NoTossDistance = float.MaxValue;
+        private readonly float[] _tossDistance = { -1f, -1f };   // -1 = not thrown yet
+        private bool _pendingIsToss;
+
+        /// <summary>A player's recorded toss distance: -1 if not thrown yet, NoTossDistance if forfeited.</summary>
+        public float TossDistance(int playerIndex) => _tossDistance[playerIndex];
 
         // Rematch votes
         public bool Player0WantsRematch { get; set; } = false;
@@ -70,6 +82,9 @@ namespace PitStrikerServer
             _nextShotId = 1;
             _pendingShotElapsed = 0f;
             _shotsTakenThisTurn = 0;
+            _tossDistance[0] = -1f;
+            _tossDistance[1] = -1f;
+            _pendingIsToss = false;
             Player0WantsRematch = false;
             Player1WantsRematch = false;
 
@@ -81,11 +96,12 @@ namespace PitStrikerServer
         }
 
         /// <summary>
-        /// Chooses who takes the first turn. Random by default.
+        /// Chooses who throws first in the opening toss, and breaks exact toss ties. Random by
+        /// default; swappable so tests can pin it and stay deterministic.
         ///
-        /// Online matches have no opening toss, and this used to be a hard-coded 0 — so whoever
-        /// created or first entered the room took the first shot in every single match, a fixed
-        /// first-mover advantage. Swappable so tests can pin the opener and stay deterministic.
+        /// It used to pick who took the first turn outright, and before that the first turn was
+        /// hard-coded to player 0, so the room creator shot first in every match. The toss now
+        /// decides turn order on merit; this only settles who throws first.
         /// </summary>
         public static Func<int> OpeningPlayerPicker = () => Random.Shared.Next(2);
 
@@ -93,11 +109,11 @@ namespace PitStrikerServer
         {
             ResetMatch();
             Room.MatchOver = false;   // a rematch starts clean
-            Phase = CloudMatchPhase.ReadyToAim;
-            ActivePlayerIndex = OpeningPlayerPicker() == 1 ? 1 : 0;
+            Phase = CloudMatchPhase.TossPhase;
+            ActivePlayerIndex = OpeningPlayerPicker() == 1 ? 1 : 0;   // who throws first
             TurnId = 1;
             TurnTimerRemaining = NetworkProtocol.DefaultTurnDuration;
-            Console.WriteLine($"[ROOM {Room.RoomCode}] Match started! Active player: P{ActivePlayerIndex + 1}, turn {TurnId}");
+            Console.WriteLine($"[ROOM {Room.RoomCode}] Match started! Toss: P{ActivePlayerIndex + 1} throws first, turn {TurnId}");
         }
 
         // ------------------------------------------------------------------
@@ -112,9 +128,10 @@ namespace PitStrikerServer
         {
             assignedShotId = -1;
 
-            if (Phase != CloudMatchPhase.ReadyToAim)
+            bool isToss = Phase == CloudMatchPhase.TossPhase;
+            if (Phase != CloudMatchPhase.ReadyToAim && !isToss)
             {
-                reason = $"not in ReadyToAim (phase {Phase})";
+                reason = $"not accepting shots (phase {Phase})";
                 return false;
             }
             if (playerIndex != ActivePlayerIndex)
@@ -143,13 +160,22 @@ namespace PitStrikerServer
             input.ShotId = assignedShotId;
             input.PlayerIndex = playerIndex;
 
+            // The server's phase decides whether this is the toss, not the client's flag. A
+            // mismatch means the client's view has drifted, which is worth seeing in the log.
+            if (isToss != input.OpeningToss)
+            {
+                Console.WriteLine($"[ROOM {Room.RoomCode}] Warning: P{playerIndex + 1} sent OpeningToss={input.OpeningToss} "
+                                + $"during {Phase}; treating it as {(isToss ? "the toss" : "a normal shot")}");
+            }
+
             PendingShotId = assignedShotId;
             PendingShotPlayer = playerIndex;
             _pendingShotElapsed = 0f;
-            _shotsTakenThisTurn++;
+            _pendingIsToss = isToss;
+            if (!isToss) _shotsTakenThisTurn++;   // the toss is not a stroke
             Phase = CloudMatchPhase.Rolling;
 
-            Console.WriteLine($"[ROOM {Room.RoomCode}] P{playerIndex + 1} shot {assignedShotId} accepted "
+            Console.WriteLine($"[ROOM {Room.RoomCode}] P{playerIndex + 1} {(isToss ? "toss" : "shot")} {assignedShotId} accepted "
                             + $"(turn {TurnId}, force {input.Force:F1}, mode {(input.ShotMode == 1 ? "Loft" : "Ground")})");
             reason = "ok";
             return true;
@@ -185,6 +211,21 @@ namespace PitStrikerServer
                 reason = $"result turn {result.TurnId} != server turn {TurnId}";
                 return false;
             }
+            if (_pendingIsToss)
+            {
+                // A toss moves no score, so only the marble positions need to be sane.
+                if (!MarblesAreSane(result, out reason)) return false;
+
+                LastAppliedShotId = PendingShotId;
+                PendingShotId = -1;
+                PendingShotPlayer = -1;
+                _pendingShotElapsed = 0f;
+                _pendingIsToss = false;
+                ApplyTossResult(playerIndex, result);
+                reason = "ok";
+                return true;
+            }
+
             if (!ResultIsStructurallySane(result, playerIndex, out reason)) return false;
 
             ApplyAcceptedResult(playerIndex, result);
@@ -238,6 +279,16 @@ namespace PitStrikerServer
                 return false;
             }
 
+            return MarblesAreSane(r, out reason);
+        }
+
+        private bool MarblesAreSane(ShotResultData r, out string reason)
+        {
+            if (r.Marbles == null || r.Marbles.Length == 0)
+            {
+                reason = "result contains no marbles";
+                return false;
+            }
             foreach (var m in r.Marbles)
             {
                 if (m.MarbleId < 0 || m.MarbleId >= AcceptedMarbles.Length)
@@ -256,6 +307,84 @@ namespace PitStrikerServer
             reason = "ok";
             return true;
         }
+
+        // ------------------------------------------------------------------
+        // Opening toss
+        // ------------------------------------------------------------------
+
+        private void ApplyTossResult(int playerIndex, ShotResultData r)
+        {
+            foreach (var m in r.Marbles)
+            {
+                if (m.MarbleId < 0 || m.MarbleId >= AcceptedMarbles.Length) continue;
+                AcceptedMarbles[m.MarbleId] = m;
+            }
+
+            // Marble ids follow player indices, so the thrower's marble has the thrower's id.
+            float distance = NoTossDistance;
+            foreach (var m in r.Marbles)
+            {
+                if (m.MarbleId != playerIndex) continue;
+                float dx = m.Position.x - TossTarget.x;
+                float dz = m.Position.z - TossTarget.z;
+                distance = MathF.Sqrt(dx * dx + dz * dz);
+                break;
+            }
+
+            string? note = null;
+            if (r.PitConqueredNumber == 3)
+            {
+                // Sinking pit 3 is a bullseye. Move the marble to the rim, as offline does, so it
+                // cannot plug the pit for the second thrower.
+                distance = 0f;
+                note = "sank pit 3";
+                var rim = AcceptedMarbles[playerIndex];
+                rim.Position = new NetVector3(TossTarget.x + 2.5f, 0.25f, TossTarget.z);
+                AcceptedMarbles[playerIndex] = rim;
+            }
+
+            RecordToss(playerIndex, distance, note);
+        }
+
+        /// <summary>
+        /// Records one player's toss and advances: to the other player's throw, or, once both
+        /// have thrown, to the first real turn for whoever landed closest.
+        /// </summary>
+        private void RecordToss(int playerIndex, float distance, string? note)
+        {
+            _tossDistance[playerIndex] = distance;
+            Console.WriteLine($"[ROOM {Room.RoomCode}] Toss: P{playerIndex + 1} {FormatToss(distance)}"
+                            + (note != null ? $" ({note})" : ""));
+
+            int other = 1 - playerIndex;
+            if (_tossDistance[other] < 0f)
+            {
+                ActivePlayerIndex = other;
+                Phase = CloudMatchPhase.TossPhase;
+                TurnTimerRemaining = NetworkProtocol.DefaultTurnDuration;
+                TurnId++;
+                return;
+            }
+
+            float d0 = _tossDistance[0];
+            float d1 = _tossDistance[1];
+            int winner = d0 < d1 ? 0 : d1 < d0 ? 1 : (OpeningPlayerPicker() == 1 ? 1 : 0);
+
+            // The toss only decides order. Everyone starts the real game from the tee.
+            AcceptedMarbles[0] = new MarbleFinalState { MarbleId = 0, Position = Tee0, IsRetired = false, InPitNumber = 0 };
+            AcceptedMarbles[1] = new MarbleFinalState { MarbleId = 1, Position = Tee1, IsRetired = false, InPitNumber = 0 };
+
+            ActivePlayerIndex = winner;
+            _shotsTakenThisTurn = 0;
+            Phase = CloudMatchPhase.ReadyToAim;
+            TurnTimerRemaining = NetworkProtocol.DefaultTurnDuration;
+            TurnId++;
+            Console.WriteLine($"[ROOM {Room.RoomCode}] TOSS RESULT: P1 {FormatToss(d0)}, P2 {FormatToss(d1)} "
+                            + $"-> P{winner + 1} plays first (turn {TurnId})"
+                            + (d0 == d1 ? " [tie broken at random]" : ""));
+        }
+
+        private static string FormatToss(float d) => d >= NoTossDistance ? "no throw" : $"{d:F2}m";
 
         /// <summary>Applies an accepted result and advances turn/score state from it.</summary>
         private void ApplyAcceptedResult(int playerIndex, ShotResultData r)
@@ -323,13 +452,15 @@ namespace PitStrikerServer
             // expired" and passing turns between players in a match that was already over.
             if (Room.MatchOver) return;
 
-            if (Phase == CloudMatchPhase.ReadyToAim)
+            if (Phase == CloudMatchPhase.ReadyToAim || Phase == CloudMatchPhase.TossPhase)
             {
                 TurnTimerRemaining -= dt;
                 if (TurnTimerRemaining <= 0f)
                 {
                     Console.WriteLine($"[ROOM {Room.RoomCode}] Turn timer expired for P{ActivePlayerIndex + 1}");
-                    PassTurn();
+                    // A player who does not throw in the toss loses it, rather than stalling the start.
+                    if (Phase == CloudMatchPhase.TossPhase) RecordToss(ActivePlayerIndex, NoTossDistance, "timed out");
+                    else PassTurn();
                     Room.MarkAcceptedStateDirty();
                 }
             }
@@ -342,10 +473,14 @@ namespace PitStrikerServer
                 {
                     Console.WriteLine($"[ROOM {Room.RoomCode}] Shot {PendingShotId} from P{PendingShotPlayer + 1} "
                                     + $"timed out after {_pendingShotElapsed:F1}s - abandoning shot, state unchanged");
+                    int striker = PendingShotPlayer;
+                    bool wasToss = _pendingIsToss;
                     PendingShotId = -1;
                     PendingShotPlayer = -1;
                     _pendingShotElapsed = 0f;
-                    PassTurn();
+                    _pendingIsToss = false;
+                    if (wasToss) RecordToss(striker, NoTossDistance, "result never arrived");
+                    else PassTurn();
                     Room.MarkAcceptedStateDirty();
                 }
             }

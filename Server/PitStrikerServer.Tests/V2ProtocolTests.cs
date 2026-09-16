@@ -81,13 +81,48 @@ namespace PitStrikerServer.Tests
             V2TestClient striker = aIdx == 0 ? a : b;
             V2TestClient waiter = aIdx == 0 ? b : a;
 
+            // ---- opening toss (opener pinned: player 0 throws first) ----
+            await waiter.SendShotInput(MakeToss(1, 1));
+            Check("toss from the player not throwing is rejected",
+                  !await waiter.WaitForOpCode(NetworkOpCode.ShotInputRelay, 900));
+
+            await striker.SendShotInput(MakeToss(1, 0));
+            ShotInputData? toss1 = await striker.WaitForShotInput(3000);
+            await waiter.WaitForShotInput(3000);   // drain the relay so a later poll cannot mistake it for an echo
+            Check("first toss accepted", toss1.HasValue);
+            await striker.SendShotResult(MakeTossResult(1, toss1?.ShotId ?? -1, 0, 29.0f));   // 2.0 m short of pit 3
+            AcceptedStateData? afterToss1 = await a.WaitForAcceptedState(3000);
+            await b.WaitForAcceptedState(3000);
+            Check("after the first toss the other player throws",
+                  afterToss1?.Phase == CloudMatchPhase.TossPhase && afterToss1?.ActivePlayerIndex == 1);
+
+            int toss2Turn = afterToss1?.TurnId ?? -1;
+            await waiter.SendShotInput(MakeToss(toss2Turn, 1));
+            ShotInputData? toss2 = await waiter.WaitForShotInput(3000);
+            await striker.WaitForShotInput(3000);
+            Check("second toss accepted", toss2.HasValue);
+            await waiter.SendShotResult(MakeTossResult(toss2Turn, toss2?.ShotId ?? -1, 1, 24.0f));   // 7.0 m short
+            AcceptedStateData? afterToss = await a.WaitForAcceptedState(3000);
+            AcceptedStateData? afterTossB = await b.WaitForAcceptedState(3000);
+            Check("toss ends in ReadyToAim", afterToss?.Phase == CloudMatchPhase.ReadyToAim);
+            Check("closest to pit 3 plays first", afterToss?.ActivePlayerIndex == 0);
+            Check("both clients agree on the toss winner",
+                  afterToss.HasValue && afterTossB.HasValue && afterToss.Value.ActivePlayerIndex == afterTossB.Value.ActivePlayerIndex);
+            Check("both marbles back on the tee after the toss",
+                  afterToss.HasValue && Math.Abs(afterToss.Value.Marbles[0].Position.z + 6f) < 0.01f
+                                     && Math.Abs(afterToss.Value.Marbles[1].Position.z + 6f) < 0.01f);
+            Check("the toss is not counted as a stroke",
+                  (afterToss?.Player0.TotalStrokes ?? -1) == 0 && (afterToss?.Player1.TotalStrokes ?? -1) == 0);
+
+            int turn = afterToss?.TurnId ?? -1;
+
             // ---- a shot from the non-active player must be refused ----
-            await waiter.SendShotInput(MakeInput(1, 1));
+            await waiter.SendShotInput(MakeInput(turn, 1));
             Check("shot from non-active player rejected",
                   !await waiter.WaitForOpCode(NetworkOpCode.ShotInputRelay, 900));
 
             // ---- legitimate shot: relayed to opponent AND echoed to striker ----
-            await striker.SendShotInput(MakeInput(1, 0));
+            await striker.SendShotInput(MakeInput(turn, 0));
             ShotInputData? relayed = await waiter.WaitForShotInput(3000);
             ShotInputData? echoed = await striker.WaitForShotInput(3000);
             Check("opponent received relayed shot input", relayed.HasValue);
@@ -106,7 +141,7 @@ namespace PitStrikerServer.Tests
             Check("stale turn id rejected", !await striker.WaitForOpCode(NetworkOpCode.ShotInputRelay, 800));
 
             // ---- result accepted, turn advances, both clients converge ----
-            await striker.SendShotResult(MakeResult(1, shotId, 0));
+            await striker.SendShotResult(MakeResult(turn, shotId, 0));
             AcceptedStateData? accA = await a.WaitForAcceptedState(3000);
             AcceptedStateData? accB = await b.WaitForAcceptedState(3000);
             Check("A received accepted state", accA.HasValue);
@@ -115,7 +150,7 @@ namespace PitStrikerServer.Tests
                   accA.HasValue && accB.HasValue && accA.Value.TurnId == accB.Value.TurnId);
             Check("both clients agree on active player",
                   accA.HasValue && accB.HasValue && accA.Value.ActivePlayerIndex == accB.Value.ActivePlayerIndex);
-            Check("turn advanced past the shot turn", (accA?.TurnId ?? 0) > 1);
+            Check("turn advanced past the shot turn", (accA?.TurnId ?? 0) > turn);
             Check("turn passed to the other player", (accA?.ActivePlayerIndex ?? -1) == 1);
             Check("accepted position matches the client-reported result",
                   accA.HasValue && accA.Value.Marbles.Length >= 1 &&
@@ -124,7 +159,7 @@ namespace PitStrikerServer.Tests
 
             // ---- duplicate result must not advance the turn twice ----
             int turnAfterFirst = accA?.TurnId ?? 0;
-            await striker.SendShotResult(MakeResult(1, shotId, 0));
+            await striker.SendShotResult(MakeResult(turn, shotId, 0));
             AcceptedStateData? dup = await a.WaitForAcceptedState(1200);
             Check("duplicate result did not advance the turn",
                   !(dup.HasValue && dup.Value.TurnId > turnAfterFirst));
@@ -214,8 +249,94 @@ namespace PitStrikerServer.Tests
             }
             finally { AuthoritativeMatchEngine.OpeningPlayerPicker = saved; }
 
+            RunTossEdgeChecks();
             RunPruneChecks();
         }
+
+        /// <summary>Toss cases a scripted two-client flow does not reach: players who never throw.</summary>
+        private static void RunTossEdgeChecks()
+        {
+            var saved = AuthoritativeMatchEngine.OpeningPlayerPicker;
+            try
+            {
+                AuthoritativeMatchEngine.OpeningPlayerPicker = () => 0;
+
+                var start = new Room("TOSS00");
+                start.MatchEngine.StartMatch();
+                Check("an online match opens in the toss phase", start.MatchEngine.Phase == CloudMatchPhase.TossPhase);
+
+                // P1 lets the clock run out; P2 throws. P2 must win the toss.
+                var timeout = new Room("TOSS01");
+                var e = timeout.MatchEngine;
+                e.StartMatch();
+                e.Tick(NetworkProtocol.DefaultTurnDuration + 1f);
+                Check("a player who does not throw passes the toss to the other player",
+                      e.Phase == CloudMatchPhase.TossPhase && e.ActivePlayerIndex == 1
+                      && e.TossDistance(0) == AuthoritativeMatchEngine.NoTossDistance);
+
+                var input = MakeToss(e.TurnId, 1);
+                bool thrown = e.SubmitShotInput(1, ref input, out int id, out _);
+                bool reported = e.SubmitShotResult(1, MakeTossResult(e.TurnId, id, 1, 20f), out _);
+                Check("the player who threw wins the toss against one who did not",
+                      thrown && reported && e.Phase == CloudMatchPhase.ReadyToAim && e.ActivePlayerIndex == 1);
+
+                // Neither throws: the match must still start rather than stall.
+                var neither = new Room("TOSS02");
+                neither.MatchEngine.StartMatch();
+                neither.MatchEngine.Tick(NetworkProtocol.DefaultTurnDuration + 1f);
+                neither.MatchEngine.Tick(NetworkProtocol.DefaultTurnDuration + 1f);
+                Check("if neither player throws, the match still starts",
+                      neither.MatchEngine.Phase == CloudMatchPhase.ReadyToAim);
+
+                // Sinking pit 3 is a bullseye and beats any distance.
+                var bull = new Room("TOSS03");
+                var b = bull.MatchEngine;
+                b.StartMatch();
+                var t0 = MakeToss(b.TurnId, 0);
+                b.SubmitShotInput(0, ref t0, out int id0, out _);
+                b.SubmitShotResult(0, MakeTossResult(b.TurnId, id0, 0, 30.9f), out _);   // 0.1 m away
+                var t1 = MakeToss(b.TurnId, 1);
+                b.SubmitShotInput(1, ref t1, out int id1, out _);
+                var sunk = MakeTossResult(b.TurnId, id1, 1, 31.0f);
+                sunk.PitConqueredNumber = 3;
+                b.SubmitShotResult(1, sunk, out _);
+                Check("sinking pit 3 in the toss beats a closer-looking throw",
+                      b.Phase == CloudMatchPhase.ReadyToAim && b.ActivePlayerIndex == 1 && b.TossDistance(1) == 0f);
+            }
+            finally { AuthoritativeMatchEngine.OpeningPlayerPicker = saved; }
+        }
+
+        private static ShotInputData MakeToss(int turnId, int playerIndex) => new ShotInputData
+        {
+            TurnId = turnId,
+            ShotId = -1,
+            PlayerIndex = playerIndex,
+            MarbleId = playerIndex,
+            LaunchDirection = new NetVector3(0f, 0.08f, 0.9968f),   // the client's flat toss pitch
+            Force = 20f,
+            MaxPitch = 0.12f,
+            ShotMode = 0,
+            OpeningToss = true,
+            ClientTimestamp = 0,
+        };
+
+        /// <summary>Toss result with the thrower's marble resting on the centreline at <paramref name="z"/>.</summary>
+        private static ShotResultData MakeTossResult(int turnId, int shotId, int playerIndex, float z) => new ShotResultData
+        {
+            TurnId = turnId,
+            ShotId = shotId,
+            PlayerIndex = playerIndex,
+            Marbles = new[]
+            {
+                new MarbleFinalState { MarbleId = playerIndex, Position = new NetVector3(0f, 0.16f, z) },
+            },
+            PitConqueredNumber = 0,
+            StrokesAfter = 0,
+            CurrentPitAfter = 1,
+            PlayerFinished = false,
+            HitOpponent = false,
+            ClientTimestamp = 0,
+        };
 
         /// <summary>
         /// Exercises RoomManager.PruneDeadRooms directly. The first version of the match-over
