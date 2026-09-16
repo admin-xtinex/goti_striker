@@ -98,6 +98,24 @@ namespace PitStriker.Gameplay
             PitStriker.Networking.Client.CloudMatchManager.Instance.IsOnlineMatchActive;
 
         /// <summary>
+        /// True from the start of a match until every player has tossed - including while a toss
+        /// is rolling or being evaluated, when <see cref="CurrentState"/> is no longer TossPhase.
+        /// Offline that is the toss list not yet full; online the server's phase is still the toss.
+        /// </summary>
+        public bool IsTossInProgress
+        {
+            get
+            {
+                if (IsOnlineMatch)
+                    return PitStriker.Networking.Client.CloudMatchManager.Instance.CurrentPhase
+                           == PitStriker.Networking.Shared.CloudMatchPhase.TossPhase;
+                return CurrentState != GameState.Menu && CurrentState != GameState.MatchVictory
+                       && _players != null && _players.Count > 0
+                       && _tossResults != null && _tossResults.Count < _players.Count;
+            }
+        }
+
+        /// <summary>
         /// The player THIS device represents — its camera subject and the marble its input
         /// drives. Online that is fixed to our own seat for the whole match, whoever's turn it
         /// is. Offline it is null, because a shared screen legitimately follows the active

@@ -280,7 +280,7 @@ namespace PitStriker.UI
         void RefreshProgress(TurnManager tm)
         {
             var view = tm != null ? (tm.LocalViewPlayer ?? tm.ActivePlayer) : null;
-            bool toss = tm != null && tm.CurrentState == TurnManager.GameState.TossPhase;
+            bool toss = tm != null && tm.IsTossInProgress;
             int current = toss ? 3 : (view != null ? Mathf.Clamp(view.currentPit, 1, 3) : 1);
             bool finished = view != null && view.isFinished;
             float pulse = 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 3f);

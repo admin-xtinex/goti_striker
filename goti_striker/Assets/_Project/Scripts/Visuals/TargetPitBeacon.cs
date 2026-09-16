@@ -86,7 +86,8 @@ namespace PitStriker.Visuals
             var view = playing ? (tm.LocalViewPlayer ?? tm.ActivePlayer) : null;
             if (view == null || view.isFinished) { SetVisible(false); return; }
 
-            int pit = tm.CurrentState == TurnManager.GameState.TossPhase ? 3 : Mathf.Clamp(view.currentPit, 1, 3);
+            // The whole toss aims at pit 3, while a throw is rolling too, not only while aiming.
+            int pit = tm.IsTossInProgress ? 3 : Mathf.Clamp(view.currentPit, 1, 3);
             SetVisible(true);
             transform.position = tm.GetPitPosition(pit) + new Vector3(0f, 0.04f, 0f);
 
