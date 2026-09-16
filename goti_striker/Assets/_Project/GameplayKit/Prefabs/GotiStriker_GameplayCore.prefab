@@ -1129,6 +1129,7 @@ Transform:
   - {fileID: 6034037800377981039}
   - {fileID: 4424649450651640929}
   - {fileID: 9132042339543448777}
+  - {fileID: 907308778676417123}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &6263228628756503957
@@ -2228,9 +2229,8 @@ MonoBehaviour:
   ResetModeAfterShot: 1
   MinPower: 0.05
   MaxPower: 1
-  LoftVerticalForce: 1.2
-  LoftMinAngle: 0.2
-  LoftMaxAngle: 0.55
+  LoftLaunchAngle: 35
+  LoftMinLaunchSpeed: 5.5
   GroundMaxPitch: 0.08
 --- !u!1 &3952338221863305737
 GameObject:
@@ -3233,6 +3233,52 @@ Transform:
   - {fileID: 5031155061311070774}
   m_Father: {fileID: 5998471561479550527}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &6085106023992597375
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 907308778676417123}
+  - component: {fileID: 3402367415082497369}
+  m_Layer: 0
+  m_Name: GroundVisual
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &907308778676417123
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6085106023992597375}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 7072883455342943793}
+  m_Father: {fileID: 5998471561479550527}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3402367415082497369
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6085106023992597375}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b21eaeb39a44aa4a8e7e14be45f1edc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PitStriker.GameplayKit.GroundWithPitHoles
+  _entries: []
 --- !u!1 &6089747000962132626
 GameObject:
   m_ObjectHideFlags: 0
@@ -5027,3 +5073,77 @@ Transform:
   - {fileID: 1690187445336961419}
   m_Father: {fileID: 5998471561479550527}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &7326608350765480410
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 907308778676417123}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -7635826562936255635, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_CastShadows
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -7635826562936255635, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: c2adb1e59833c6d42a0029890f5f5cf8, type: 2}
+    - target: {fileID: -6400281290468069383, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_Mesh
+      value: 
+      objectReference: {fileID: 4300000, guid: bc63dfae17f574e4e8f1dc1e5c21a7e1, type: 2}
+    - target: {fileID: 919132149155446097, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+      propertyPath: m_Name
+      value: PlanExample_Soil_Unity6_Better_LOD0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+--- !u!4 &7072883455342943793 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: de64bee218cd8e745bc45ac20f7e9f3c, type: 3}
+  m_PrefabInstance: {fileID: 7326608350765480410}
+  m_PrefabAsset: {fileID: 0}

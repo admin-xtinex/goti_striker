@@ -1,0 +1,30 @@
+{
+  "reference_image": "/mnt/data/1789590759319.jpeg",
+  "footprint_m": {
+    "x": [
+      -10,
+      10
+    ],
+    "z": [
+      -8.5,
+      37.5
+    ]
+  },
+  "collider_center": [
+    0,
+    -0.25,
+    14.5
+  ],
+  "collider_size": [
+    20,
+    0.5,
+    46
+  ],
+  "texture_resolution": [
+    2048,
+    2048
+  ],
+  "mesh_vertices": 16641,
+  "mesh_triangles": 32768,
+  "note": "Flat soil mesh with better-looking seamless top-down texture; no pit openings."
+}
