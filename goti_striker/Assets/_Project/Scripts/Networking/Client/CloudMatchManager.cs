@@ -45,6 +45,8 @@ namespace PitStriker.Networking.Client
         private int _replayingShotId = -1;
         private float _settleTimer = 0f;
         private float _awaitingResultTimer = 0f;
+        private float _awaitingShotIdTimer = 0f;
+        private const float ShotIdTimeoutSeconds = 8f;   // our ShotInput never echoed back
         // Set while reconciling so input stays disabled until both phones agree.
         private bool _reconciled = true;
 
@@ -241,22 +243,23 @@ namespace PitStriker.Networking.Client
             _turnId = state.TurnId;
             _lastAppliedShotId = state.LastAppliedShotId;
 
-            if (_currentPhase != state.Phase)
-            {
-                _currentPhase = state.Phase;
-                OnPhaseChangedEvent?.Invoke(_currentPhase);
-            }
-            if (_activePlayerIndex != state.ActivePlayerIndex)
-            {
-                _activePlayerIndex = state.ActivePlayerIndex;
-                OnActivePlayerChangedEvent?.Invoke(_activePlayerIndex);
-            }
+            // Store both before raising either event: listeners read the other value (the toss
+            // banner picks "your throw" vs "opponent is throwing" from ActivePlayerIndex), and
+            // raising the phase first showed the previous player's banner for that update.
+            bool phaseChanged = _currentPhase != state.Phase;
+            bool activeChanged = _activePlayerIndex != state.ActivePlayerIndex;
+            _currentPhase = state.Phase;
+            _activePlayerIndex = state.ActivePlayerIndex;
+            if (phaseChanged) OnPhaseChangedEvent?.Invoke(_currentPhase);
+            if (activeChanged) OnActivePlayerChangedEvent?.Invoke(_activePlayerIndex);
 
             _turnTimerRemaining = state.TurnTimerRemaining;
             OnTimerTickEvent?.Invoke(_turnTimerRemaining);
 
             // Positions are authoritative: snap or ease every marble onto the accepted state.
             ApplyFinalStates(state.Marbles, ease: true);
+            // A pit still holding a marble that authority has since moved would keep halting it.
+            foreach (var pz in FindObjectsByType<PitZone>(FindObjectsSortMode.None)) pz.ResetPit();
 
             if (Player0Data.TotalStrokes != state.Player0.TotalStrokes || Player0Data.CurrentPit != state.Player0.CurrentPit)
             {
@@ -373,6 +376,10 @@ namespace PitStriker.Networking.Client
                 CloudNetworkClient.Instance.OnShotBroadcastReceived += HandleShotBroadcast;
                 CloudNetworkClient.Instance.OnMatchCompleted += HandleMatchCompleted;
                 CloudNetworkClient.Instance.OnRematchConfirmed += HandleRematchConfirmed;
+                CloudNetworkClient.Instance.OnShotRejected += HandleShotRejected;
+                CloudNetworkClient.Instance.OnRoomCreated += HandleEnteredLobby;
+                CloudNetworkClient.Instance.OnRoomJoined += HandleEnteredLobby;
+                CloudNetworkClient.Instance.OnOpponentJoined += HandleEnteredLobby;
             }
         }
 
@@ -388,7 +395,44 @@ namespace PitStriker.Networking.Client
                 CloudNetworkClient.Instance.OnShotBroadcastReceived -= HandleShotBroadcast;
                 CloudNetworkClient.Instance.OnMatchCompleted -= HandleMatchCompleted;
                 CloudNetworkClient.Instance.OnRematchConfirmed -= HandleRematchConfirmed;
+                CloudNetworkClient.Instance.OnShotRejected -= HandleShotRejected;
+                CloudNetworkClient.Instance.OnRoomCreated -= HandleEnteredLobby;
+                CloudNetworkClient.Instance.OnRoomJoined -= HandleEnteredLobby;
+                CloudNetworkClient.Instance.OnOpponentJoined -= HandleEnteredLobby;
             }
+        }
+
+        /// <summary>
+        /// The server refused a shot we already played locally - usually a swipe that landed
+        /// just after the turn timer handed the turn over. Our marble has moved on this phone
+        /// only, and input is shut waiting for an id that will never come, so ask for the
+        /// accepted state: it clears the pending shot and puts every marble back.
+        /// </summary>
+        private void HandleShotRejected(string reason)
+        {
+            Debug.LogWarning($"[CLOUD MATCH] {reason} - resyncing.");
+            _awaitingShotIdForLocalShot = false;
+            _awaitingShotIdTimer = 0f;
+            CloudNetworkClient.Instance?.RequestResync();
+        }
+
+        /// <summary>
+        /// Entering a lobby (room created or joined, or matched) means no match is running yet.
+        /// Without this the previous match's phase survived: with a new room code set, the
+        /// client counted as "in an online match" while still waiting for an opponent and let
+        /// the player shoot (server: "not accepting shots (phase WaitingForPlayers)").
+        /// </summary>
+        private void HandleEnteredLobby(string _)
+        {
+            EndSpectate();
+            _currentPhase = CloudMatchPhase.WaitingForPlayers;
+            _localPendingShotId = -1;
+            _replayingShotId = -1;
+            _awaitingShotIdForLocalShot = false;
+            _awaitingShotIdTimer = 0f;
+            _awaitingResultTimer = 0f;
+            _settleTimer = 0f;
+            _reconciled = true;
         }
 
         private void HandleMatchStarted(string roomCode, string p1, string p2)
@@ -563,6 +607,25 @@ namespace PitStriker.Networking.Client
                 }
             }
 
+            // Our shot left but its echo never came back (lost on the link, or refused by a
+            // server that does not report it): input would stay shut until the turn timer ran
+            // out on the server. Ask for the accepted state instead.
+            if (_awaitingShotIdForLocalShot)
+            {
+                _awaitingShotIdTimer += Time.deltaTime;
+                if (_awaitingShotIdTimer >= ShotIdTimeoutSeconds)
+                {
+                    Debug.LogWarning($"[CLOUD MATCH] No id for our shot after {_awaitingShotIdTimer:F1}s - requesting resync.");
+                    _awaitingShotIdForLocalShot = false;
+                    _awaitingShotIdTimer = 0f;
+                    CloudNetworkClient.Instance?.RequestResync();
+                }
+            }
+            else
+            {
+                _awaitingShotIdTimer = 0f;
+            }
+
             // If the opponent's result never arrives we ask the server rather than
             // advancing the turn from our own replay.
             if (_replayingShotId >= 0)
@@ -599,27 +662,57 @@ namespace PitStriker.Networking.Client
             int localIdx = client.LocalPlayerIndex;
             var tm = TurnManager.Instance;
 
+            int pitConquered = 0;
+            int strokesAfter = tm?.ActivePlayer?.totalStrokes ?? 0;
+
+            // The server owns pit progression. Its target for us is the pit it last accepted,
+            // not whatever TurnManager has drifted to; claiming any other pit is refused.
+            var mine = localIdx == 1 ? Player1Data : Player0Data;
+            int targetPit = mine.CurrentPit >= 1 ? mine.CurrentPit : (tm?.ActivePlayer?.currentPit ?? 1);
+            bool isToss = _localPendingInput.OpeningToss;
+
+            // Resolve pits exactly as offline play does, before positions are reported, so the
+            // positions the server accepts (and the opponent snaps to) already reflect it:
+            //   our marble in our target pit -> conquered, move on to the next tee
+            //   our marble in any other pit  -> out to that pit's rim
+            //   opponent's marble in a pit   -> out to that pit's rim
+            // The toss is only a distance to pit 3, and the server stages both marbles after it.
+            if (!isToss)
+            {
+                MarbleController localMarble = GetMarble(localIdx);
+                MarbleController opponentMarble = GetMarble(localIdx == 0 ? 1 : 0);
+                var pits = FindObjectsByType<PitZone>(FindObjectsSortMode.None);
+
+                foreach (var pz in pits)
+                {
+                    if (localMarble != null && pz.IsMarbleCaptured(localMarble))
+                    {
+                        if (pz.PitNumber == targetPit && pitConquered == 0)
+                        {
+                            pitConquered = targetPit;
+                            localMarble.Halt();
+                            // Pit 3 finishes the course; the marble stays where it was sunk.
+                            if (targetPit < 3 && tm != null) tm.RelocateToNextTee(localMarble, targetPit + 1);
+                        }
+                        else
+                        {
+                            localMarble.ResetPosition(PitRim(pz));
+                        }
+                    }
+                    if (opponentMarble != null && pz.IsMarbleCaptured(opponentMarble))
+                    {
+                        opponentMarble.ResetPosition(PitRim(pz));
+                    }
+                    pz.ResetPit();
+                }
+            }
+
+            int currentPitAfter = pitConquered == 0 || targetPit >= 3 ? targetPit : targetPit + 1;
+            bool finished = pitConquered == 3;
+
             var states = new System.Collections.Generic.List<MarbleFinalState>();
             AddFinalState(states, 0, _marble0);
             AddFinalState(states, 1, _marble1);
-
-            int pitConquered = 0;
-            int currentPitAfter = tm?.ActivePlayer?.currentPit ?? 1;
-            int strokesAfter = tm?.ActivePlayer?.totalStrokes ?? 0;
-            bool finished = tm?.ActivePlayer?.isFinished ?? false;
-
-            // A pit counts as conquered when the local marble settled inside the pit it was
-            // aiming at — decided by the same PitZone logic offline play uses.
-            MarbleController localMarble = GetMarble(localIdx);
-            if (localMarble != null)
-            {
-                foreach (var pz in FindObjectsByType<PitZone>(FindObjectsSortMode.None))
-                {
-                    // Same rule the offline game uses, so what we report as a capture is what
-                    // the pit would actually have kept.
-                    if (pz.IsMarbleCaptured(localMarble)) { pitConquered = pz.PitNumber; break; }
-                }
-            }
 
             var result = new ShotResultData
             {
@@ -639,6 +732,9 @@ namespace PitStriker.Networking.Client
             Debug.Log($"[CLOUD MATCH] Sent ShotResult shot={shotId} pit={pitConquered} "
                     + $"strokes={strokesAfter}{(timedOut ? " (settle timeout)" : "")}");
         }
+
+        /// <summary>Where a marble that must not stay in a pit is put: the same spot offline play uses.</summary>
+        private static Vector3 PitRim(PitZone pit) => pit.transform.position + new Vector3(2.5f, 0.25f, 0f);
 
         private void AddFinalState(System.Collections.Generic.List<MarbleFinalState> list, int id, MarbleController m)
         {

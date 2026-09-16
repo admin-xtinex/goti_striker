@@ -742,6 +742,12 @@ namespace PitStriker.Gameplay
                 return;
             }
 
+            // Online, pits are resolved once, by the striking client, after everything settles
+            // (CloudMatchManager.SendLocalShotResult), and the watcher takes the accepted positions.
+            // Resolving here as well would move marbles on one phone only. It also misread every
+            // online sink as a toss sink, because _tossResults is only ever filled offline.
+            if (IsOnlineMatch) return;
+
             // Detect if we are in the Toss Phase (either aiming or in-flight)
             bool isTossPhase = (_tossResults != null && _tossResults.Count < _players.Count);
             if (isTossPhase)
@@ -1580,7 +1586,7 @@ namespace PitStriker.Gameplay
             OnStatusMessage?.Invoke(summary);
         }
 
-        private void RelocateToNextTee(MarbleController marble, int nextPit)
+        public void RelocateToNextTee(MarbleController marble, int nextPit)
         {
             if (marble == null) return;
 

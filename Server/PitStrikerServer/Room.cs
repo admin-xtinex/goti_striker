@@ -91,7 +91,8 @@ namespace PitStrikerServer
                 _writer.Reset();
                 _writer.WriteByte((byte)opCode);
                 payloadWriter?.Invoke(_writer);
-                byte[] data = _writer.Buffer;
+                // Cloned: the send is not awaited, and the next caller reuses _writer.
+                byte[] data = (byte[])_writer.Buffer.Clone();
                 int len = _writer.Position;
                 _ = BroadcastAsync(data, len);
             }

@@ -77,6 +77,7 @@ namespace PitStriker.Networking.Client
         public event Action OnOpponentReconnected;
         public event Action<int, string> OnMatchAbandoned; // winnerIdx, reason
         public event Action<string> OnClientError;
+        public event Action<string> OnShotRejected; // the server refused a ShotInput this client sent
 
         // v2: shot-input relay + client-authored final state
         public event Action<ShotInputData> OnShotInputRelayed;   // opponent's shot, or our own echo carrying the assigned ShotId
@@ -534,7 +535,12 @@ namespace PitStriker.Networking.Client
 
                 case NetworkOpCode.ErrorMessage:
                     string serverErr = reader.ReadString();
-                    OnClientError?.Invoke(serverErr);
+                    // A refused shot is part of match flow (late swipe after the turn timer passed
+                    // the turn), not a session problem: the match recovers it, no popup.
+                    if (serverErr.StartsWith("shot rejected", StringComparison.Ordinal) && OnShotRejected != null)
+                        OnShotRejected.Invoke(serverErr);
+                    else
+                        OnClientError?.Invoke(serverErr);
                     break;
             }
         }

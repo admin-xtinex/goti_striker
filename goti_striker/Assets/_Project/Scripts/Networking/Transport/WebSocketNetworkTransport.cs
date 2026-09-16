@@ -48,6 +48,8 @@ namespace PitStriker.Networking.Transport
 
             _state = NetworkConnectionState.Connecting;
             _cts = new CancellationTokenSource();
+            // Packets queued for a previous socket belong to that session; never replay them here.
+            while (_outgoingQueue.TryDequeue(out _)) { }
 
             try
             {
@@ -119,24 +121,67 @@ namespace PitStriker.Networking.Transport
             }
         }
 
-        public async void Send(byte[] buffer, int length, NetworkDelivery delivery = NetworkDelivery.Reliable)
+        // ClientWebSocket allows only ONE SendAsync in flight. Callers fire sends from Update
+        // (ping timer, shot input, shot result) without waiting, so two could overlap: the second
+        // threw "There is already one outstanding 'SendAsync' call", was logged as a warning and
+        // the packet was gone - a toss or shot result the server never saw. Sends are therefore
+        // copied (callers reuse one writer buffer) and drained in order by a single pump.
+        private readonly ConcurrentQueue<byte[]> _outgoingQueue = new ConcurrentQueue<byte[]>();
+        private int _sendPumpRunning;
+
+        public void Send(byte[] buffer, int length, NetworkDelivery delivery = NetworkDelivery.Reliable)
         {
             if (_webSocket == null || _webSocket.State != WebSocketState.Open) return;
 
+            var copy = new byte[length];
+            Buffer.BlockCopy(buffer, 0, copy, 0, length);
+            _outgoingQueue.Enqueue(copy);
+
+            if (Interlocked.CompareExchange(ref _sendPumpRunning, 1, 0) == 0)
+                _ = PumpSendsAsync();
+        }
+
+        private async Task PumpSendsAsync()
+        {
             try
             {
-                ArraySegment<byte> segment = new ArraySegment<byte>(buffer, 0, length);
-                await _webSocket.SendAsync(segment, WebSocketMessageType.Binary, true, CancellationToken.None);
+                while (true)
+                {
+                    while (_outgoingQueue.TryDequeue(out byte[] packet))
+                    {
+                        var socket = _webSocket;
+                        if (socket == null || socket.State != WebSocketState.Open) continue;   // drop: link is gone
+                        try
+                        {
+                            await socket.SendAsync(new ArraySegment<byte>(packet), WebSocketMessageType.Binary, true, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning($"[WEBSOCKET] Send error: {ex.Message}");
+                        }
+                    }
+
+                    Interlocked.Exchange(ref _sendPumpRunning, 0);
+                    // A Send may have queued after the drain but before the flag cleared; if so and
+                    // nobody else picked it up, keep going rather than strand it.
+                    if (_outgoingQueue.IsEmpty || Interlocked.CompareExchange(ref _sendPumpRunning, 1, 0) != 0)
+                        return;
+                }
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[WEBSOCKET] Send error: {ex.Message}");
+                Interlocked.Exchange(ref _sendPumpRunning, 0);
+                Debug.LogWarning($"[WEBSOCKET] Send pump stopped: {ex.Message}");
             }
         }
 
         private async Task ReceiveLoopAsync(CancellationToken ct)
         {
             byte[] tempBuffer = new byte[8192];
+            // One server message can arrive over several ReceiveAsync calls on a slow link; only
+            // EndOfMessage marks a whole packet. Treating each read as a packet split it into two
+            // garbage packets.
+            var message = new System.IO.MemoryStream();
             try
             {
                 while (_webSocket != null && _webSocket.State == WebSocketState.Open && !ct.IsCancellationRequested)
@@ -151,11 +196,12 @@ namespace PitStriker.Networking.Transport
                         break;
                     }
 
-                    if (result.Count > 0)
+                    if (result.Count > 0) message.Write(tempBuffer, 0, result.Count);
+
+                    if (result.EndOfMessage)
                     {
-                        byte[] packet = new byte[result.Count];
-                        Buffer.BlockCopy(tempBuffer, 0, packet, 0, result.Count);
-                        _incomingQueue.Enqueue(packet);
+                        if (message.Length > 0) _incomingQueue.Enqueue(message.ToArray());
+                        message.SetLength(0);
                     }
                 }
             }
