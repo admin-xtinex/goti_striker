@@ -114,7 +114,20 @@ namespace PitStriker.EditorTools
             PlayerSettings.Android.bundleVersionCode = 1;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
-            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
+            // Release builds are ARM64-only: that is every real Android phone, and it keeps the
+            // APK small. Set GOTI_INCLUDE_X86=1 to also emit x86_64 for emulator testing.
+            //
+            // This matters more than it looks. An x86_64 emulator CAN install an arm64-only APK
+            // when the system image ships ARM translation, but every instruction is translated at
+            // runtime — a Unity IL2CPP game then crawls badly enough that even `adb shell pidof`
+            // times out, which makes a full match impossible to drive. A native x86_64 slice runs
+            // at normal speed instead.
+            bool includeX86 = System.Environment.GetEnvironmentVariable("GOTI_INCLUDE_X86") == "1";
+            PlayerSettings.Android.targetArchitectures = includeX86
+                ? (AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64)
+                : AndroidArchitecture.ARM64;
+            Debug.Log($"<color=#00FFAA><b>[BUILD APK]</b> Target architectures: "
+                    + $"{PlayerSettings.Android.targetArchitectures}</color>");
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
