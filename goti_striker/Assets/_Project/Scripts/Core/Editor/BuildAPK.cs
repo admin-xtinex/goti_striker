@@ -133,7 +133,18 @@ namespace PitStriker.EditorTools
             // instruction is translated at runtime and a Unity IL2CPP game becomes unusably slow —
             // slow enough that even "adb shell pidof" times out. Test on a real device, or use a
             // desktop standalone build as the second client.
-            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64 | AndroidArchitecture.ARMv7;
+            // GOTI_SKIP_ARMV7=1 builds ARM64 only: a faster dev build for testing on 64-bit phones.
+            // Never ship one - budget phones on 32-bit Android cannot install it.
+            //
+            // It also sidesteps a local build problem: with real-time antivirus (Reason
+            // Cybersecurity here) scanning compiler output, the doubled native compile of an
+            // ARM64+ARMv7 build intermittently fails with "Building ...\d8kzr\*.o failed with
+            // output: Access is denied." ARM64-only builds have not hit it. The real fix is a scan
+            // exclusion for Library\ and the Unity AndroidPlayer folder.
+            bool skipArmV7 = System.Environment.GetEnvironmentVariable("GOTI_SKIP_ARMV7") == "1";
+            PlayerSettings.Android.targetArchitectures = skipArmV7
+                ? AndroidArchitecture.ARM64
+                : AndroidArchitecture.ARM64 | AndroidArchitecture.ARMv7;
             Debug.Log($"<color=#00FFAA><b>[BUILD APK]</b> Target architectures: "
                     + $"{PlayerSettings.Android.targetArchitectures}</color>");
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
